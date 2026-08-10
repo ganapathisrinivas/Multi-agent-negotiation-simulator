@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: multi-agent-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: multi_agent_db
+      POSTGRES_USER: multi_agent_user
+      POSTGRES_PASSWORD: multi_agent_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
