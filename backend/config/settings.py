@@ -2,16 +2,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Multi-Agent System"
+    app_name: str = "Real Estate Multi-Agent Negotiation Simulator"
     app_version: str = "0.1.0"
     debug: bool = False
+
     database_url: str
+
+    gemini_api_key: str
+    gemini_model: str = "gemini-2.5-flash"
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
-        
     )
 
 
