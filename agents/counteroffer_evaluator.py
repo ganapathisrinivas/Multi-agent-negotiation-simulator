@@ -1,13 +1,23 @@
+# agents/counteroffer_evaluator.py
+
 import re
 
 
 class CounterofferEvaluator:
     """
-    Evaluates an incoming offer using the agent's private
-    negotiation objectives.
+    Evaluates the incoming negotiation offer.
 
-    The private target/minimum/maximum values are NEVER
-    displayed to the user.
+    Buyer:
+        - Accepts when seller price is at/below target.
+        - Otherwise makes a higher counteroffer.
+
+    Seller:
+        - Accepts when buyer price is at/above target.
+        - Otherwise makes a lower counteroffer.
+
+    The evaluator also remembers the previous counteroffer so
+    the negotiation continues moving instead of repeating
+    the same amount.
     """
 
     def __init__(
@@ -18,316 +28,410 @@ class CounterofferEvaluator:
         maximum_price
     ):
         self.role = role.lower()
-        self.target_price = target_price
-        self.minimum_price = minimum_price
-        self.maximum_price = maximum_price
+
+        self.target_price = float(
+            target_price
+        )
+
+        self.minimum_price = float(
+            minimum_price
+        )
+
+        self.maximum_price = float(
+            maximum_price
+        )
 
         self.previous_offer = None
         self.concession_count = 0
 
-    # =========================================================
+    # =====================================================
     # EXTRACT PRICE
-    # =========================================================
+    # =====================================================
 
     def extract_price(self, text):
 
         if not text:
             return None
 
-        text = text.lower().replace(",", "")
+        text = text.replace(",", "")
 
-        # -----------------------------------------------------
-        # Explicit lakh format
-        # Examples:
-        # 50 lakhs
-        # 50 lakh
-        # ₹50 lakhs
-        # rs 50 lakhs
-        # -----------------------------------------------------
+        # -------------------------------------------------
+        # 1. Explicit counteroffer
+        # -------------------------------------------------
 
-        lakh_match = re.search(
-            r"(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)\s*lakh[s]?",
-            text
+        patterns = [
+            r"COUNTEROFFER\s*:\s*₹?\s*(\d+(?:\.\d+)?)\s*(?:lakhs?|lacs?)",
+
+            r"counter\s*offer\s*(?:is|of)?\s*₹?\s*"
+            r"(\d+(?:\.\d+)?)\s*(?:lakhs?|lacs?)",
+
+            r"counteroffer\s*(?:is|of)?\s*₹?\s*"
+            r"(\d+(?:\.\d+)?)\s*(?:lakhs?|lacs?)",
+
+            r"our\s+counteroffer\s+is\s*₹?\s*"
+            r"(\d+(?:\.\d+)?)\s*(?:lakhs?|lacs?)",
+
+            r"counteroffer\s*[:\-]?\s*₹?\s*"
+            r"(\d+(?:\.\d+)?)\s*(?:lakhs?|lacs?)"
+        ]
+
+        for pattern in patterns:
+
+            match = re.search(
+                pattern,
+                text,
+                re.IGNORECASE
+            )
+
+            if match:
+
+                return (
+                    float(match.group(1))
+                    * 100000
+                )
+
+        # -------------------------------------------------
+        # 2. Accepted offer
+        # -------------------------------------------------
+
+        accepted_patterns = [
+
+            r"ACCEPTED OFFER\s*:\s*₹?\s*"
+            r"(\d+(?:\.\d+)?)\s*(?:lakhs?|lacs?)",
+
+            r"accept\s+(?:your\s+)?offer\s+of\s*₹?\s*"
+            r"(\d+(?:\.\d+)?)\s*(?:lakhs?|lacs?)",
+
+            r"accept(?:ed)?\s*[:\-]?\s*₹?\s*"
+            r"(\d+(?:\.\d+)?)\s*(?:lakhs?|lacs?)"
+        ]
+
+        for pattern in accepted_patterns:
+
+            match = re.search(
+                pattern,
+                text,
+                re.IGNORECASE
+            )
+
+            if match:
+
+                return (
+                    float(match.group(1))
+                    * 100000
+                )
+
+        # -------------------------------------------------
+        # 3. Rupee + lakhs
+        # -------------------------------------------------
+
+        lakh_pattern = re.search(
+            r"(?:₹|Rs\.?|INR)?\s*"
+            r"(\d+(?:\.\d+)?)\s*"
+            r"(?:lakhs?|lacs?)",
+            text,
+            re.IGNORECASE
         )
 
-        if lakh_match:
+        if lakh_pattern:
 
-            value = float(lakh_match.group(1))
+            return (
+                float(lakh_pattern.group(1))
+                * 100000
+            )
 
-            return value * 100000
+        # -------------------------------------------------
+        # 4. Rupee amount
+        # -------------------------------------------------
 
-        # -----------------------------------------------------
-        # Rupee amount
-        # Example:
-        # ₹5000000
-        # -----------------------------------------------------
-
-        rupee_match = re.search(
-            r"(?:₹|rs\.?|inr)\s*(\d+(?:\.\d+)?)",
-            text
+        rupee_pattern = re.search(
+            r"(?:₹|Rs\.?|INR)\s*"
+            r"(\d+(?:\.\d+)?)",
+            text,
+            re.IGNORECASE
         )
 
-        if rupee_match:
+        if rupee_pattern:
 
-            value = float(rupee_match.group(1))
+            value = float(
+                rupee_pattern.group(1)
+            )
 
-            # If the value is small, treat it as lakhs.
             if value < 1000:
                 return value * 100000
 
             return value
 
-        # -----------------------------------------------------
-        # Plain large number
-        # Example:
-        # 5000000
-        # -----------------------------------------------------
-
-        large_number_match = re.search(
-            r"\b(\d{6,9})\b",
-            text
-        )
-
-        if large_number_match:
-
-            return float(
-                large_number_match.group(1)
-            )
-
-        # -----------------------------------------------------
-        # Plain number
+        # -------------------------------------------------
+        # IMPORTANT:
         #
-        # Examples:
-        # 50
-        # 55
-        # 58
-        # final is 58
-        # my offer is 55
-        # -----------------------------------------------------
-
-        numbers = re.findall(
-            r"\b\d+(?:\.\d+)?\b",
-            text
-        )
-
-        if numbers:
-
-            value = float(numbers[-1])
-
-            # Negotiation is in lakhs.
-            if value < 1000:
-
-                return value * 100000
+        # Do NOT extract random numbers from the message.
+        #
+        # For example:
+        # "1 RK"
+        # "500 square feet"
+        # "6th floor"
+        #
+        # must NOT become a property price.
+        # -------------------------------------------------
 
         return None
 
-    # =========================================================
-    # EVALUATE OFFER
-    # =========================================================
+    # =====================================================
+    # EVALUATE
+    # =====================================================
 
-    def evaluate(self, incoming_message):
+    def evaluate(
+        self,
+        incoming_message
+    ):
 
         offer_price = self.extract_price(
             incoming_message
         )
 
-        # -----------------------------------------------------
-        # No price found
-        # -----------------------------------------------------
+        # -------------------------------------------------
+        # No price detected
+        # -------------------------------------------------
 
         if offer_price is None:
 
             return {
                 "decision": "COUNTER",
                 "offer_price": None,
-                "counter_price": None,
-                "reason": "No clear monetary offer was detected."
+                "counter_price": self._fallback_counter(),
+                "reason": (
+                    "No clear monetary offer "
+                    "was detected."
+                )
             }
 
-        # =====================================================
+        # =================================================
         # SELLER
-        # =====================================================
+        # =================================================
 
         if self.role == "seller":
 
-            # -------------------------------------------------
-            # ACCEPT
-            # Buyer meets or exceeds seller target
-            # -------------------------------------------------
+            # ---------------------------------------------
+            # Accept
+            # ---------------------------------------------
 
             if offer_price >= self.target_price:
 
-                self.previous_offer = offer_price
+                self.previous_offer = (
+                    offer_price
+                )
 
                 return {
                     "decision": "ACCEPT",
                     "offer_price": offer_price,
                     "counter_price": None,
-                    "reason": "Offer meets the seller's acceptable objective."
+                    "reason": (
+                        "Offer meets the "
+                        "seller's target."
+                    )
                 }
 
-            # -------------------------------------------------
-            # COUNTER
-            # Buyer is below minimum
-            # -------------------------------------------------
+            # ---------------------------------------------
+            # Counter
+            # ---------------------------------------------
 
-            if offer_price < self.minimum_price:
-
-                counter_price = self.calculate_seller_counter(
+            counter_price = (
+                self.calculate_seller_counter(
                     offer_price
                 )
-
-                self.previous_offer = counter_price
-                self.concession_count += 1
-
-                return {
-                    "decision": "COUNTER",
-                    "offer_price": offer_price,
-                    "counter_price": counter_price,
-                    "reason": "Offer is below the seller's acceptable range."
-                }
-
-            # -------------------------------------------------
-            # COUNTER
-            # Offer is between minimum and target
-            # -------------------------------------------------
-
-            counter_price = self.calculate_seller_counter(
-                offer_price
             )
 
-            self.previous_offer = counter_price
+            self.previous_offer = (
+                counter_price
+            )
+
             self.concession_count += 1
 
             return {
                 "decision": "COUNTER",
                 "offer_price": offer_price,
                 "counter_price": counter_price,
-                "reason": "Offer is negotiable but below the seller's target."
+                "reason": (
+                    "Offer is below the "
+                    "seller's target."
+                )
             }
 
-        # =====================================================
+        # =================================================
         # BUYER
-        # =====================================================
+        # =================================================
 
         else:
 
-            # -------------------------------------------------
-            # ACCEPT
-            # Seller price is at or below buyer target
-            # -------------------------------------------------
+            # ---------------------------------------------
+            # Accept
+            # ---------------------------------------------
 
             if offer_price <= self.target_price:
 
-                self.previous_offer = offer_price
+                self.previous_offer = (
+                    offer_price
+                )
 
                 return {
                     "decision": "ACCEPT",
                     "offer_price": offer_price,
                     "counter_price": None,
-                    "reason": "Offer is within the buyer's target."
+                    "reason": (
+                        "Offer is within the "
+                        "buyer's target."
+                    )
                 }
 
-            # -------------------------------------------------
-            # COUNTER
-            # Seller price exceeds maximum
-            # -------------------------------------------------
+            # ---------------------------------------------
+            # Counter
+            # ---------------------------------------------
 
-            if offer_price > self.maximum_price:
-
-                counter_price = self.calculate_buyer_counter(
+            counter_price = (
+                self.calculate_buyer_counter(
                     offer_price
                 )
-
-                self.previous_offer = counter_price
-                self.concession_count += 1
-
-                return {
-                    "decision": "COUNTER",
-                    "offer_price": offer_price,
-                    "counter_price": counter_price,
-                    "reason": "Offer exceeds the buyer's maximum budget."
-                }
-
-            # -------------------------------------------------
-            # COUNTER
-            # Seller price is between target and maximum
-            # -------------------------------------------------
-
-            counter_price = self.calculate_buyer_counter(
-                offer_price
             )
 
-            self.previous_offer = counter_price
+            self.previous_offer = (
+                counter_price
+            )
+
             self.concession_count += 1
 
             return {
                 "decision": "COUNTER",
                 "offer_price": offer_price,
                 "counter_price": counter_price,
-                "reason": "Offer is negotiable but above the buyer's target."
+                "reason": (
+                    "Offer is above the "
+                    "buyer's target."
+                )
             }
 
-    # =========================================================
-    # SELLER CONCESSION
-    # =========================================================
+    # =====================================================
+    # SELLER COUNTER
+    # =====================================================
 
-    def calculate_seller_counter(self, buyer_offer):
+    def calculate_seller_counter(
+        self,
+        buyer_offer
+    ):
 
         if self.previous_offer is None:
 
-            current_position = self.target_price
+            current_position = (
+                self.target_price
+            )
 
         else:
 
-            current_position = self.previous_offer
+            current_position = (
+                self.previous_offer
+            )
 
-        # Move 25% toward buyer's offer
-        counter = current_position - (
-            (current_position - buyer_offer) * 0.25
+        # Move 20% toward buyer offer.
+        counter = (
+            current_position
+            - (
+                (
+                    current_position
+                    - buyer_offer
+                )
+                * 0.20
+            )
         )
 
-        # Never go below seller minimum
+        # Never go below seller minimum.
         counter = max(
             counter,
             self.minimum_price
         )
 
-        # Round to nearest ₹50,000
-        counter = round(
-            counter / 50000
-        ) * 50000
-
-        return int(counter)
-
-    # =========================================================
-    # BUYER CONCESSION
-    # =========================================================
-
-    def calculate_buyer_counter(self, seller_offer):
-
-        if self.previous_offer is None:
-
-            current_position = self.target_price
-
-        else:
-
-            current_position = self.previous_offer
-
-        # Move 25% toward seller's offer
-        counter = current_position + (
-            (seller_offer - current_position) * 0.25
-        )
-
-        # Never exceed buyer maximum
+        # Never go above seller maximum.
         counter = min(
             counter,
             self.maximum_price
         )
 
-        # Round to nearest ₹50,000
-        counter = round(
-            counter / 50000
-        ) * 50000
+        # Round to nearest ₹50,000.
+        counter = (
+            round(
+                counter / 50000
+            )
+            * 50000
+        )
 
         return int(counter)
+
+    # =====================================================
+    # BUYER COUNTER
+    # =====================================================
+
+    def calculate_buyer_counter(
+        self,
+        seller_offer
+    ):
+
+        if self.previous_offer is None:
+
+            current_position = (
+                self.target_price
+            )
+
+        else:
+
+            current_position = (
+                self.previous_offer
+            )
+
+        # Move 20% toward seller offer.
+        counter = (
+            current_position
+            + (
+                (
+                    seller_offer
+                    - current_position
+                )
+                * 0.20
+            )
+        )
+
+        # Never go below buyer minimum.
+        counter = max(
+            counter,
+            self.minimum_price
+        )
+
+        # Never exceed buyer maximum.
+        counter = min(
+            counter,
+            self.maximum_price
+        )
+
+        # Round to nearest ₹50,000.
+        counter = (
+            round(
+                counter / 50000
+            )
+            * 50000
+        )
+
+        return int(counter)
+
+    # =====================================================
+    # FALLBACK COUNTER
+    # =====================================================
+
+    def _fallback_counter(self):
+
+        if self.previous_offer is not None:
+
+            return int(
+                self.previous_offer
+            )
+
+        return int(
+            self.target_price
+        )
