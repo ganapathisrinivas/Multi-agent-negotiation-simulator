@@ -1,6 +1,4 @@
-# agents/reasoning_engine.py
-
-import os
+'''import os
 import re
 
 from dotenv import load_dotenv
@@ -9,17 +7,13 @@ from google import genai
 
 class ReasoningEngine:
     """
-    LLM-powered reasoning engine for the
-    Real Estate Negotiation Simulator.
+    LLM reasoning engine for the real-estate negotiation simulator.
 
-    Responsibilities:
-    1. Understand the agent role
-    2. Use the agent personality
-    3. Use negotiation goals
-    4. Read negotiation history
-    5. Follow evaluator decisions
-    6. Generate natural negotiation responses
-    7. Use a reliable fallback when Gemini is unavailable
+    IMPORTANT:
+    The evaluator controls the negotiation decision and price.
+
+    Gemini is responsible only for generating the natural-language
+    negotiation message around that decision.
     """
 
     def __init__(
@@ -38,28 +32,17 @@ class ReasoningEngine:
         self.persona = persona
         self.goals = goals
 
-        self.target_price = float(
-            target_price
-        )
+        self.target_price = float(target_price)
+        self.minimum_price = float(minimum_price)
+        self.maximum_price = float(maximum_price)
 
-        self.minimum_price = float(
-            minimum_price
-        )
+        # =====================================================
+        # GEMINI CONFIGURATION
+        # =====================================================
 
-        self.maximum_price = float(
-            maximum_price
-        )
-
-        # =============================================
-        # GEMINI API CONFIGURATION
-        # =============================================
-
-        api_key = os.getenv(
-            "GEMINI_API_KEY"
-        )
+        api_key = os.getenv("GEMINI_API_KEY")
 
         if not api_key:
-
             raise ValueError(
                 "GEMINI_API_KEY is not set."
             )
@@ -73,9 +56,9 @@ class ReasoningEngine:
             "gemini-3.5-flash"
         )
 
-    # =================================================
-    # MAIN RESPONSE FUNCTION
-    # =================================================
+    # =========================================================
+    # GENERATE RESPONSE
+    # =========================================================
 
     def generate_response(
         self,
@@ -83,85 +66,82 @@ class ReasoningEngine:
         evaluation
     ):
         """
-        Generate a response using Gemini.
+        Generate the agent's response.
 
-        If Gemini is unavailable, the fallback response
-        uses the evaluator's counter_price.
+        Correct interface:
+
+            generate_response(history, evaluation)
+
+        The evaluator has already decided:
+            ACCEPT
+            COUNTER
+
+        Gemini does NOT decide the price.
         """
 
-        decision = evaluation.get(
-            "decision",
-            "COUNTER"
-        )
+        if evaluation is None:
+            evaluation = {}
 
-        offer_price = evaluation.get(
-            "offer_price"
+        decision = str(
+            evaluation.get(
+                "decision",
+                "COUNTER"
+            )
+        ).upper()
+
+        incoming_offer = evaluation.get(
+            "incoming_offer"
         )
 
         counter_price = evaluation.get(
             "counter_price"
         )
 
-        # =============================================
-        # BUILD HISTORY
-        # =============================================
-
-        history_text = self._format_history(
-            negotiation_history
+        accepted_price = evaluation.get(
+            "accepted_price"
         )
 
-        # =============================================
-        # BUILD PROMPT
-        # =============================================
+        previous_offer = evaluation.get(
+            "previous_offer"
+        )
 
         prompt = self._build_prompt(
-            history_text,
-            evaluation
+            negotiation_history=negotiation_history,
+            decision=decision,
+            incoming_offer=incoming_offer,
+            counter_price=counter_price,
+            accepted_price=accepted_price,
+            previous_offer=previous_offer
         )
 
-        # =============================================
-        # TRY GEMINI
-        # =============================================
-
-        response = self._generate_with_retry(
+        response = self._generate_with_gemini(
             prompt
         )
 
         if response:
-
             return self._clean_response(
                 response
             )
 
-        # =============================================
-        # GEMINI FAILED
-        # USE FALLBACK
-        # =============================================
-
         return self._fallback_response(
             decision=decision,
-            offer_price=offer_price,
-            counter_price=counter_price
+            incoming_offer=incoming_offer,
+            counter_price=counter_price,
+            accepted_price=accepted_price
         )
 
-    # =================================================
+    # =========================================================
     # GEMINI REQUEST
-    # =================================================
+    # =========================================================
 
-    def _generate_with_retry(
+    def _generate_with_gemini(
         self,
-        prompt,
-        max_retries=0
+        prompt
     ):
         """
-        Send request to Gemini.
+        Send the request to Gemini.
 
-        We do not repeatedly retry quota errors because
-        repeated requests can make the free-tier limit
-        worse.
-
-        If Gemini is unavailable, return None and allow
-        the negotiation fallback to continue.
+        Returns None if Gemini is unavailable.
         """
 
         try:
@@ -174,7 +154,6 @@ class ReasoningEngine:
             )
 
             if response is None:
-
                 return None
 
             text = getattr(
@@ -184,226 +163,143 @@ class ReasoningEngine:
             )
 
             if not text:
-
                 return None
 
             return text.strip()
 
         except Exception as error:
 
-            error_text = str(
-                error
-            )
-
-            # =========================================
-            # QUOTA / RATE LIMIT
-            # =========================================
-
-            if (
-                "429" in error_text
-                or
-                "RESOURCE_EXHAUSTED"
-                in error_text
-                or
-                "quota"
-                in error_text.lower()
-            ):
-
-                print(
-                    "\nGemini quota temporarily unavailable."
-                )
-
-                print(
-                    "Using negotiation fallback."
-                )
-
-                return None
-
-            # =========================================
-            # TEMPORARY SERVICE ERROR
-            # =========================================
-
-            if (
-                "503" in error_text
-                or
-                "UNAVAILABLE"
-                in error_text
-                or
-                "temporarily"
-                in error_text.lower()
-            ):
-
-                print(
-                    "\nGemini service temporarily unavailable."
-                )
-
-                print(
-                    "Using negotiation fallback."
-                )
-
-                return None
-
-            # =========================================
-            # OTHER GEMINI ERROR
-            # =========================================
-
             print(
-                f"\nGemini API error: {error}"
+                "\nGemini temporarily unavailable."
             )
 
             print(
-                "Using negotiation fallback."
+                f"Reason: {error}"
+            )
+
+            print(
+                "Using deterministic negotiation response."
             )
 
             return None
 
-    # =================================================
-    # PROMPT CREATION
-    # =================================================
+    # =========================================================
+    # BUILD PROMPT
+    # =========================================================
 
     def _build_prompt(
         self,
-        history_text,
-        evaluation
+        negotiation_history,
+        decision,
+        incoming_offer,
+        counter_price,
+        accepted_price,
+        previous_offer
     ):
-        """
-        Create the prompt sent to Gemini.
-        """
 
-        decision = evaluation.get(
-            "decision",
-            "COUNTER"
+        history_text = self._format_history(
+            negotiation_history
         )
 
-        offer_price = evaluation.get(
-            "offer_price"
+        incoming_text = self._format_price(
+            incoming_offer
         )
 
-        counter_price = evaluation.get(
-            "counter_price"
+        previous_text = self._format_price(
+            previous_offer
         )
 
-        if offer_price is not None:
+        counter_text = self._format_price(
+            counter_price
+        )
 
-            offer_text = self._format_price(
-                offer_price
-            )
-
-        else:
-
-            offer_text = "No clear offer"
-
-        if counter_price is not None:
-
-            counter_text = self._format_price(
-                counter_price
-            )
-
-        else:
-
-            counter_text = "No counteroffer"
+        accepted_text = self._format_price(
+            accepted_price
+        )
 
         return f"""
-You are the {self.role} Agent in a
-real-estate negotiation simulation.
+You are the {self.role} in an AI-vs-AI real-estate negotiation.
 
-========================================
-ROLE
-========================================
-
-Agent Role:
+ROLE:
 {self.role}
 
-Personality:
+PERSONALITY:
 {self.persona}
 
-Goals:
+GOALS:
 {self.goals}
 
-========================================
-PRICE LIMITS
-========================================
-
-Target Price:
+YOUR TARGET PRICE:
 {self._format_price(self.target_price)}
 
-Minimum Price:
+YOUR MINIMUM PRICE:
 {self._format_price(self.minimum_price)}
 
-Maximum Price:
+YOUR MAXIMUM PRICE:
 {self._format_price(self.maximum_price)}
 
-========================================
-CURRENT EVALUATION
-========================================
+PREVIOUS OFFER FROM YOU:
+{previous_text}
 
-Decision:
+LATEST OFFER FROM OTHER AGENT:
+{incoming_text}
+
+EVALUATOR DECISION:
 {decision}
 
-Incoming Offer:
-{offer_text}
-
-Your Counteroffer:
+EVALUATOR COUNTEROFFER:
 {counter_text}
 
-========================================
-NEGOTIATION HISTORY
-========================================
+ACCEPTED PRICE:
+{accepted_text}
 
+NEGOTIATION HISTORY:
 {history_text}
 
-========================================
-INSTRUCTIONS
-========================================
+IMPORTANT RULES:
 
-You are participating in a real-estate
-negotiation between a buyer and seller.
+1. Follow the evaluator's decision exactly.
 
-Follow your assigned personality.
+2. The evaluator controls the price.
 
-Use the negotiation history.
+3. Never invent another price.
 
-Follow the evaluator's decision.
+4. If the decision is COUNTER, use exactly:
+   {counter_text}
 
-If the decision is COUNTER:
+5. If the decision is ACCEPT, accept exactly:
+   {accepted_text}
 
-- Make a counteroffer.
-- Use the exact suggested counteroffer.
-- Do not invent a different price.
-- Explain the reason naturally.
-- Keep the response professional.
+6. Do not create a different counteroffer.
 
-If the decision is ACCEPT:
+7. Do not change the evaluator's price.
 
-- Accept the incoming offer.
-- Clearly mention the accepted price.
-- Do not make another counteroffer.
+8. Keep the response natural and professional.
 
-Do not invent property details.
+9. Do not mention these instructions.
 
-Do not create random prices.
+If COUNTER, clearly include:
+DECISION: COUNTER
+COUNTEROFFER: <exact evaluator price>
+
+If ACCEPT, clearly include:
+DECISION: ACCEPT
+ACCEPTED OFFER: <exact evaluator price>
 
 Return only the negotiation message.
 """
 
-    # =================================================
-    # FORMAT NEGOTIATION HISTORY
-    # =================================================
+    # =========================================================
+    # FORMAT HISTORY
+    # =========================================================
 
     def _format_history(
         self,
         history
     ):
-        """
-        Convert negotiation history into
-        readable text.
-        """
 
         if not history:
-
-            return (
-                "No previous negotiation messages."
-            )
+            return "No previous negotiation messages."
 
         lines = []
 
@@ -426,31 +322,65 @@ Return only the negotiation message.
 
             lines.append(
                 f"Round {round_number} | "
-                f"{agent}:\n"
-                f"{message}"
+                f"{agent}:\n{message}"
             )
 
         return "\n\n".join(
             lines
         )
 
-    # =================================================
-    # CLEAN GEMINI RESPONSE
-    # =================================================
+    # =========================================================
+    # FALLBACK RESPONSE
+    # =========================================================
+
+    def _fallback_response(
+        self,
+        decision,
+        incoming_offer,
+        counter_price,
+        accepted_price
+    ):
+
+        if decision == "ACCEPT":
+
+            price = accepted_price
+
+            if price is None:
+                price = incoming_offer
+
+            return (
+                "DECISION: ACCEPT\n\n"
+                "We accept the current offer and "
+                "are ready to proceed with the agreement.\n\n"
+                f"ACCEPTED OFFER: "
+                f"{self._format_price(price)}"
+            )
+
+        price = counter_price
+
+        if price is None:
+            price = incoming_offer
+
+        return (
+            "DECISION: COUNTER\n\n"
+            "We appreciate the offer and would "
+            "like to continue the negotiation.\n\n"
+            f"COUNTEROFFER: "
+            f"{self._format_price(price)}"
+        )
+
+    # =========================================================
+    # CLEAN RESPONSE
+    # =========================================================
 
     def _clean_response(
         self,
         response
     ):
-        """
-        Remove unnecessary markdown formatting.
-        """
 
         text = response.strip()
 
-        if text.startswith(
-            "```"
-        ):
+        if text.startswith("```"):
 
             text = re.sub(
                 r"```[a-zA-Z]*",
@@ -465,94 +395,470 @@ Return only the negotiation message.
 
         return text.strip()
 
-    # =================================================
-    # FALLBACK RESPONSE
-    # =================================================
-
-    def _fallback_response(
-        self,
-        decision,
-        offer_price,
-        counter_price
-    ):
-        """
-        Deterministic fallback used when Gemini
-        is unavailable.
-
-        IMPORTANT:
-        The fallback NEVER invents a random price.
-
-        It uses the price calculated by the
-        CounterofferEvaluator.
-        """
-
-        # =============================================
-        # ACCEPT
-        # =============================================
-
-        if decision == "ACCEPT":
-
-            accepted_price = offer_price
-
-            if accepted_price is None:
-
-                accepted_price = (
-                    counter_price
-                )
-
-            if accepted_price is None:
-
-                return (
-                    "Thank you for the offer. "
-                    "We are prepared to accept "
-                    "the current proposal and "
-                    "proceed with the agreement."
-                )
-
-            return (
-                "Thank you for the offer. "
-                "After considering the negotiation, "
-                f"we are prepared to accept "
-                f"{self._format_price(accepted_price)}. "
-                "We can proceed with the agreement."
-            )
-
-        # =============================================
-        # COUNTER
-        # =============================================
-
-        if counter_price is None:
-
-            # If evaluator somehow did not provide
-            # a counter price, use target price.
-            counter_price = (
-                self.target_price
-            )
-
-        return (
-            "Thank you for the offer. "
-            "We appreciate your position and "
-            "would like to continue the negotiation. "
-            f"Our counteroffer is "
-            f"{self._format_price(counter_price)}."
-        )
-
-    # =================================================
+    # =========================================================
     # FORMAT PRICE
-    # =================================================
+    # =========================================================
 
     def _format_price(
         self,
         price
     ):
-        """
-        Convert rupees to Indian lakhs.
-        """
 
         if price is None:
-
-            return "Unknown"
+            return "N/A"
 
         return (
-            f"₹{price / 100000:.2f} lakhs"
+            f"₹{float(price) / 100000:.2f} lakhs"
+        )'''
+
+
+
+
+
+import os
+import re
+
+from dotenv import load_dotenv
+from google import genai
+
+
+class ReasoningEngine:
+    """
+    LLM reasoning engine for the real-estate negotiation simulator.
+
+    IMPORTANT:
+
+    The CounterofferEvaluator controls the actual negotiation
+    decision and price.
+
+    Gemini is responsible only for generating the natural-language
+    negotiation message.
+
+    If Gemini is unavailable, a deterministic fallback response
+    is returned.
+    """
+
+    def __init__(
+        self,
+        role,
+        persona,
+        goals,
+        target_price,
+        minimum_price,
+        maximum_price
+    ):
+
+        load_dotenv()
+
+        self.role = role
+        self.persona = persona
+        self.goals = goals
+
+        self.target_price = float(target_price)
+        self.minimum_price = float(minimum_price)
+        self.maximum_price = float(maximum_price)
+
+        # =====================================================
+        # GEMINI CONFIGURATION
+        # =====================================================
+
+        self.client = None
+
+        api_key = os.getenv(
+            "GEMINI_API_KEY"
+        )
+
+        # Gemini is optional.
+        # The negotiation must still work without it.
+        if api_key:
+
+            try:
+
+                self.client = genai.Client(
+                    api_key=api_key
+                )
+
+            except Exception as error:
+
+                print(
+                    "\nGemini client could not be initialized."
+                )
+
+                print(
+                    f"Reason: {error}"
+                )
+
+                self.client = None
+
+        else:
+
+            print(
+                "\nGEMINI_API_KEY is not set."
+            )
+
+            print(
+                "Using deterministic negotiation responses."
+            )
+
+        self.model_name = os.getenv(
+            "GEMINI_MODEL",
+            "gemini-3.5-flash"
+        )
+
+    # =========================================================
+    # GENERATE RESPONSE
+    # =========================================================
+
+    def generate_response(
+        self,
+        negotiation_history,
+        evaluation
+    ):
+        """
+        Generate the agent's response.
+
+        Interface:
+
+            generate_response(history, evaluation)
+
+        The evaluator controls:
+
+            ACCEPT
+            COUNTER
+
+        and the actual price.
+        """
+
+        if evaluation is None:
+            evaluation = {}
+
+        decision = str(
+            evaluation.get(
+                "decision",
+                "COUNTER"
+            )
+        ).upper()
+
+        incoming_offer = evaluation.get(
+            "incoming_offer"
+        )
+
+        counter_price = evaluation.get(
+            "counter_price"
+        )
+
+        accepted_price = evaluation.get(
+            "accepted_price"
+        )
+
+        previous_offer = evaluation.get(
+            "previous_offer"
+        )
+
+        prompt = self._build_prompt(
+            negotiation_history=negotiation_history,
+            decision=decision,
+            incoming_offer=incoming_offer,
+            counter_price=counter_price,
+            accepted_price=accepted_price,
+            previous_offer=previous_offer
+        )
+
+        response = self._generate_with_gemini(
+            prompt
+        )
+
+        if response:
+
+            return self._clean_response(
+                response
+            )
+
+        return self._fallback_response(
+            decision=decision,
+            incoming_offer=incoming_offer,
+            counter_price=counter_price,
+            accepted_price=accepted_price
+        )
+
+    # =========================================================
+    # GEMINI REQUEST
+    # =========================================================
+
+    def _generate_with_gemini(
+        self,
+        prompt
+    ):
+        """
+        Send request to Gemini.
+
+        Returns None if Gemini is unavailable.
+        """
+
+        if self.client is None:
+            return None
+
+        try:
+
+            response = (
+                self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt
+                )
+            )
+
+            if response is None:
+                return None
+
+            text = getattr(
+                response,
+                "text",
+                None
+            )
+
+            if not text:
+                return None
+
+            return text.strip()
+
+        except Exception as error:
+
+            print(
+                "\nGemini temporarily unavailable."
+            )
+
+            print(
+                f"Reason: {error}"
+            )
+
+            print(
+                "Using deterministic negotiation response."
+            )
+
+            return None
+
+    # =========================================================
+    # BUILD PROMPT
+    # =========================================================
+
+    def _build_prompt(
+        self,
+        negotiation_history,
+        decision,
+        incoming_offer,
+        counter_price,
+        accepted_price,
+        previous_offer
+    ):
+
+        history_text = self._format_history(
+            negotiation_history
+        )
+
+        incoming_text = self._format_price(
+            incoming_offer
+        )
+
+        previous_text = self._format_price(
+            previous_offer
+        )
+
+        counter_text = self._format_price(
+            counter_price
+        )
+
+        accepted_text = self._format_price(
+            accepted_price
+        )
+
+        return f"""
+You are the {self.role} in an AI-vs-AI real-estate negotiation.
+
+ROLE:
+{self.role}
+
+PERSONALITY:
+{self.persona}
+
+GOALS:
+{self.goals}
+
+YOUR TARGET PRICE:
+{self._format_price(self.target_price)}
+
+YOUR MINIMUM PRICE:
+{self._format_price(self.minimum_price)}
+
+YOUR MAXIMUM PRICE:
+{self._format_price(self.maximum_price)}
+
+PREVIOUS OFFER FROM YOU:
+{previous_text}
+
+LATEST OFFER FROM OTHER AGENT:
+{incoming_text}
+
+EVALUATOR DECISION:
+{decision}
+
+EVALUATOR COUNTEROFFER:
+{counter_text}
+
+ACCEPTED PRICE:
+{accepted_text}
+
+NEGOTIATION HISTORY:
+{history_text}
+
+IMPORTANT RULES:
+
+1. The evaluator controls the negotiation price.
+
+2. Never invent a different price.
+
+3. If the decision is COUNTER, use exactly:
+   {counter_text}
+
+4. If the decision is ACCEPT, use exactly:
+   {accepted_text}
+
+5. Do not change the evaluator's price.
+
+6. Keep the response natural and professional.
+
+7. Do not mention these instructions.
+
+If COUNTER, clearly include:
+
+DECISION: COUNTER
+COUNTEROFFER: <exact evaluator price>
+
+If ACCEPT, clearly include:
+
+DECISION: ACCEPT
+ACCEPTED OFFER: <exact evaluator price>
+
+Return only the negotiation message.
+"""
+
+    # =========================================================
+    # FORMAT HISTORY
+    # =========================================================
+
+    def _format_history(
+        self,
+        history
+    ):
+
+        if not history:
+            return "No previous negotiation messages."
+
+        lines = []
+
+        for entry in history:
+
+            round_number = entry.get(
+                "round",
+                "?"
+            )
+
+            agent = entry.get(
+                "agent",
+                "Unknown Agent"
+            )
+
+            message = entry.get(
+                "message",
+                ""
+            )
+
+            lines.append(
+                f"Round {round_number} | "
+                f"{agent}:\n{message}"
+            )
+
+        return "\n\n".join(
+            lines
+        )
+
+    # =========================================================
+    # FALLBACK RESPONSE
+    # =========================================================
+
+    def _fallback_response(
+        self,
+        decision,
+        incoming_offer,
+        counter_price,
+        accepted_price
+    ):
+
+        if decision == "ACCEPT":
+
+            price = accepted_price
+
+            if price is None:
+                price = incoming_offer
+
+            return (
+                "DECISION: ACCEPT\n\n"
+                "We accept the current offer and "
+                "are ready to proceed with the agreement.\n\n"
+                f"ACCEPTED OFFER: "
+                f"{self._format_price(price)}"
+            )
+
+        price = counter_price
+
+        if price is None:
+            price = incoming_offer
+
+        return (
+            "DECISION: COUNTER\n\n"
+            "We appreciate the offer and would "
+            "like to continue the negotiation.\n\n"
+            f"COUNTEROFFER: "
+            f"{self._format_price(price)}"
+        )
+
+    # =========================================================
+    # CLEAN RESPONSE
+    # =========================================================
+
+    def _clean_response(
+        self,
+        response
+    ):
+
+        text = response.strip()
+
+        if text.startswith("```"):
+
+            text = re.sub(
+                r"```[a-zA-Z]*",
+                "",
+                text
+            )
+
+            text = text.replace(
+                "```",
+                ""
+            )
+
+        return text.strip()
+
+    # =========================================================
+    # FORMAT PRICE
+    # =========================================================
+
+    def _format_price(
+        self,
+        price
+    ):
+
+        if price is None:
+            return "N/A"
+
+        return (
+            f"₹{float(price) / 100000:.2f} lakhs"
         )

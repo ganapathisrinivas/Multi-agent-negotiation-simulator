@@ -519,7 +519,7 @@ def start_negotiation(
 
     return {
         "status": result.get("status"),
-        "agreed_price": result.get("price"),
+        "agreed_price": result.get("agreed_price"),
         "scenario": SCENARIOS[
             request.scenario
         ],
