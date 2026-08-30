@@ -7,14 +7,16 @@ import re
 
 def extract_offer_amount(text):
     """Extract an offer amount from an agent response."""
+
     if text is None:
         return None
+
     if isinstance(text, (int, float)):
         return float(text)
 
     text = str(text)
 
-    # Lakhs
+    # Extract prices written in lakhs
     match = re.search(
         r'₹?\s*([\d,]+(?:\.\d+)?)\s*(?:lakhs?|lakh)\b',
         text, re.IGNORECASE
@@ -22,14 +24,15 @@ def extract_offer_amount(text):
     if match:
         return float(match.group(1).replace(",", "")) * 100000
 
-    # L format
+    # Extract prices written using L
     match = re.search(
-        r'₹?\s*([\d,]+(?:\.\d+)?)\s*[lL]\b', text
+        r'₹?\s*([\d,]+(?:\.\d+)?)\s*[lL]\b',
+        text
     )
     if match:
         return float(match.group(1).replace(",", "")) * 100000
 
-    # Crores
+    # Extract prices written in crores
     match = re.search(
         r'₹?\s*([\d,]+(?:\.\d+)?)\s*(?:crores?|crore)\b',
         text, re.IGNORECASE
@@ -37,14 +40,15 @@ def extract_offer_amount(text):
     if match:
         return float(match.group(1).replace(",", "")) * 10000000
 
-    # Rupees
+    # Extract rupee values
     match = re.search(
-        r'₹\s*([\d,]+(?:\.\d+)?)', text
+        r'₹\s*([\d,]+(?:\.\d+)?)',
+        text
     )
     if match:
         return float(match.group(1).replace(",", ""))
 
-    # Counteroffer without ₹
+    # Extract counteroffer values without ₹
     match = re.search(
         r'(?:COUNTEROFFER|COUNTER OFFER|OFFER)\s*[:\-]?\s*'
         r'₹?\s*([\d,]+(?:\.\d+)?)\s*(?:lakhs?|lakh|L)?',
@@ -64,6 +68,7 @@ def extract_offer_amount(text):
 def format_price(amount):
     if amount is None:
         return "N/A"
+
     return f"₹{float(amount) / 100000:.2f} lakhs"
 
 
@@ -74,6 +79,7 @@ def format_price(amount):
 def offers_match_exactly(buyer_offer, seller_offer):
     if buyer_offer is None or seller_offer is None:
         return False
+
     return float(buyer_offer) == float(seller_offer)
 
 
@@ -96,9 +102,9 @@ def detect_deadlock(
     1. Both agents repeat exactly the same offers.
     2. Negotiation gap does not decrease.
 
-    Exact equality is NOT deadlock because agreement is
-    checked before deadlock detection.
+    Exact equality is checked before deadlock detection.
     """
+
     if None in (
         previous_buyer_offer,
         previous_seller_offer,
@@ -112,18 +118,18 @@ def detect_deadlock(
     previous_seller_offer = float(previous_seller_offer)
     current_seller_offer = float(current_seller_offer)
 
-    # Exact agreement is never deadlock
+    # Exact agreement is never treated as deadlock
     if offers_match_exactly(current_buyer_offer, current_seller_offer):
         return False
 
-    # Condition 1: both agents are stuck
+    # Check whether both agents repeated their offers
     buyer_stuck = current_buyer_offer == previous_buyer_offer
     seller_stuck = current_seller_offer == previous_seller_offer
 
     if buyer_stuck and seller_stuck:
         return True
 
-    # Condition 2: negotiation gap is not improving
+    # Check whether the negotiation gap stopped improving
     if previous_gap is not None and current_gap is not None:
         previous_gap = abs(float(previous_gap))
         current_gap = abs(float(current_gap))
@@ -193,15 +199,15 @@ def run_negotiation(
     """
     Main AI-vs-AI negotiation loop.
 
-    FINAL RULES:
+    Rules:
     1. Buyer starts.
     2. Seller responds.
     3. One round = Buyer + Seller.
     4. Buyer moves upward.
     5. Seller starts at reference price.
     6. Seller moves downward.
-    7. Exact equality is the ONLY agreement condition.
-    8. Close prices are NOT agreement.
+    7. Exact equality is the only agreement condition.
+    8. Close prices are not agreement.
     9. No tolerance is used.
     10. Gemini does not control prices.
     11. Evaluators control prices.
@@ -275,6 +281,13 @@ def run_negotiation(
 
     for round_number in range(1, max_rounds + 1):
 
+        # Keep Orchestrator synchronized with the runner
+        try:
+            orchestrator.round_count = round_number
+            orchestrator.current_agent_index = 0
+        except Exception:
+            pass
+
         print("\n===================================")
         print(f"ROUND {round_number}")
         print("===================================")
@@ -301,11 +314,12 @@ def run_negotiation(
         except Exception as error:
             print("\nReasoning engine error:")
             print(str(error))
+
             buyer_response = _fallback_response_from_evaluation(
                 buyer_evaluation
             )
 
-        # Price comes ONLY from evaluator
+        # Price comes only from evaluator
         buyer_decision = str(
             buyer_evaluation.get("decision", "COUNTER")
         ).upper()
@@ -322,11 +336,13 @@ def run_negotiation(
                 if last_buyer_offer is not None
                 else reference_price * 0.90
             )
+
             buyer_offer = _round_price(buyer_offer)
             buyer_response = _fallback_counter_response(buyer_offer)
 
         buyer_offer = _round_price(buyer_offer)
 
+        # Buyer output
         print("\nBuyer Agent:")
         print(buyer_response)
         print(f"\nDecision: {buyer_decision}")
@@ -345,7 +361,7 @@ def run_negotiation(
             buyer_response
         )
 
-        # Exact agreement after buyer turn
+        # Check exact agreement after buyer turn
         if offers_match_exactly(buyer_offer, seller_offer):
             agreed_price = float(buyer_offer)
             status = "AGREEMENT_REACHED"
@@ -363,6 +379,7 @@ def run_negotiation(
                 "Negotiation Completed",
                 format_price(agreed_price)
             )
+
             break
 
         last_buyer_offer = buyer_offer
@@ -389,11 +406,12 @@ def run_negotiation(
         except Exception as error:
             print("\nReasoning engine error:")
             print(str(error))
+
             seller_response = _fallback_response_from_evaluation(
                 seller_evaluation
             )
 
-        # Price comes ONLY from evaluator
+        # Price comes only from evaluator
         seller_decision = str(
             seller_evaluation.get("decision", "COUNTER")
         ).upper()
@@ -410,11 +428,13 @@ def run_negotiation(
                 if last_seller_offer is not None
                 else reference_price
             )
+
             seller_offer = _round_price(seller_offer)
             seller_response = _fallback_counter_response(seller_offer)
 
         seller_offer = _round_price(seller_offer)
 
+        # Seller output
         print("\nSeller Agent:")
         print(seller_response)
         print(f"\nDecision: {seller_decision}")
@@ -454,6 +474,7 @@ def run_negotiation(
                 "Negotiation Completed",
                 format_price(agreed_price)
             )
+
             break
 
         # ====================================================
@@ -477,10 +498,12 @@ def run_negotiation(
             print("\n===================================")
             print("       NEGOTIATION DEADLOCK")
             print("===================================")
+
             print(
                 "Buyer and Seller are no longer "
                 "making meaningful progress."
             )
+
             print(f"Buyer Offer: {format_price(buyer_offer)}")
             print(f"Seller Offer: {format_price(seller_offer)}")
             print(
@@ -494,6 +517,7 @@ def run_negotiation(
                 "Negotiation Completed",
                 format_price(seller_offer)
             )
+
             break
 
         # Store current round for next deadlock check
@@ -533,10 +557,12 @@ def run_negotiation(
         print("\n===================================")
         print("       NEGOTIATION REJECTED")
         print("===================================")
+
         print(
             "Buyer and Seller did not reach "
             "the exact same offer."
         )
+
         print(f"Maximum rounds reached: {max_rounds}")
 
     # ========================================================
@@ -550,7 +576,7 @@ def run_negotiation(
     }
 
     # Safety invariant:
-    # AGREEMENT_REACHED can NEVER have null agreed_price.
+    # AGREEMENT_REACHED can never have null agreed_price.
     if (
         result["status"] == "AGREEMENT_REACHED"
         and result["agreed_price"] is None
@@ -571,6 +597,7 @@ def _fallback_response_from_evaluation(evaluation):
 
     if decision == "ACCEPT":
         price = evaluation.get("accepted_price")
+
         return (
             "DECISION: ACCEPT\n\n"
             "We accept the current offer.\n\n"
@@ -578,6 +605,7 @@ def _fallback_response_from_evaluation(evaluation):
         )
 
     price = evaluation.get("counter_price")
+
     return (
         "DECISION: COUNTER\n\n"
         "We appreciate the offer and "
