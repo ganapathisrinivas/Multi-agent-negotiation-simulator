@@ -10,7 +10,6 @@ def extract_offer_amount(text):
     Extract an offer amount from an agent response.
 
     Examples:
-
         ₹54.00 lakhs -> 5400000
         ₹65.50 lakhs -> 6550000
         ₹54 lakh     -> 5400000
@@ -37,7 +36,6 @@ def extract_offer_amount(text):
     )
 
     if match:
-
         value = (
             match.group(1)
             .replace(",", "")
@@ -55,7 +53,6 @@ def extract_offer_amount(text):
     )
 
     if match:
-
         value = (
             match.group(1)
             .replace(",", "")
@@ -75,7 +72,6 @@ def extract_offer_amount(text):
     )
 
     if match:
-
         value = (
             match.group(1)
             .replace(",", "")
@@ -93,7 +89,6 @@ def extract_offer_amount(text):
     )
 
     if match:
-
         value = (
             match.group(1)
             .replace(",", "")
@@ -115,7 +110,6 @@ def extract_offer_amount(text):
     )
 
     if match:
-
         value = (
             match.group(1)
             .replace(",", "")
@@ -342,6 +336,19 @@ def run_negotiation(
         max_rounds + 1
     ):
 
+        # ----------------------------------------------------
+        # IMPORTANT:
+        # The negotiation runner controls the round number.
+        # One Buyer + one Seller = one complete round.
+        # Keep the Orchestrator synchronized with it.
+        # ----------------------------------------------------
+
+        try:
+            orchestrator.round_count = round_number
+            orchestrator.current_agent_index = 0
+        except Exception:
+            pass
+
         print("\n===================================")
         print(f"ROUND {round_number}")
         print("===================================")
@@ -422,6 +429,7 @@ def run_negotiation(
 
             if last_buyer_offer is not None:
                 buyer_offer = last_buyer_offer
+
             else:
                 buyer_offer = (
                     reference_price * 0.90
@@ -591,6 +599,7 @@ def run_negotiation(
 
             if last_seller_offer is not None:
                 seller_offer = last_seller_offer
+
             else:
                 seller_offer = reference_price
 
