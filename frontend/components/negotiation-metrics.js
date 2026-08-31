@@ -1,131 +1,129 @@
-const API_BASE_URL = "http://localhost:8000";
-
-
-// Start a Human vs AI negotiation
-async function startNegotiation({
-    scenario = 2,
-    propertyIndex = 0,
-    humanRole = "buyer",
-    aiPersonality = "collaborative",
-    maxRounds = 10
-} = {}) {
-
-    const response = await fetch(
-        `${API_BASE_URL}/negotiations/practice`,
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                scenario,
-                property_index: propertyIndex,
-                human_role: humanRole,
-                ai_personality: aiPersonality,
-                max_rounds: maxRounds
-            })
-        }
-    );
-
-    if (!response.ok) {
-        throw new Error(
-            `Failed to start negotiation: ${response.status}`
-        );
+function formatCurrency(value) {
+    if (value === null || value === undefined) {
+        return "—";
     }
 
-    return await response.json();
+    return new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency: "INR",
+        maximumFractionDigits: 0
+    }).format(value);
 }
 
 
-// Get current negotiation state
-async function getNegotiationState(negotiationId) {
-
-    const response = await fetch(
-        `${API_BASE_URL}/negotiations/${negotiationId}`
-    );
-
-    if (!response.ok) {
-        throw new Error(
-            `Failed to get negotiation state: ${response.status}`
-        );
+function formatStatus(status) {
+    if (!status) {
+        return "UNKNOWN";
     }
 
-    return await response.json();
+    return status
+        .replace("_", " ")
+        .toUpperCase();
 }
 
 
-// Send human message / offer
-async function sendOffer(
-    negotiationId,
-    message,
-    offer = null
-) {
-
-    const response = await fetch(
-        `${API_BASE_URL}/negotiations/${negotiationId}/message`,
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                message,
-                offer
-            })
-        }
-    );
-
-    if (!response.ok) {
-        throw new Error(
-            `Failed to send offer: ${response.status}`
-        );
+function renderMetrics(data) {
+    if (!data) {
+        return `
+            <div class="negotiation-metrics">
+                <p>No negotiation data available.</p>
+            </div>
+        `;
     }
 
-    return await response.json();
-}
+    return `
+        <div class="negotiation-metrics">
+
+            <div class="metric-card">
+                <span class="metric-label">
+                    Round
+                </span>
+
+                <span class="metric-value">
+                    ${data.round} / ${data.max_rounds}
+                </span>
+            </div>
 
 
-// Get negotiation history
-async function getNegotiationHistory(negotiationId) {
+            <div class="metric-card">
+                <span class="metric-label">
+                    Status
+                </span>
 
-    const response = await fetch(
-        `${API_BASE_URL}/negotiations/${negotiationId}/history`
-    );
-
-    if (!response.ok) {
-        throw new Error(
-            `Failed to get negotiation history: ${response.status}`
-        );
-    }
-
-    return await response.json();
-}
+                <span class="metric-value">
+                    ${formatStatus(data.status)}
+                </span>
+            </div>
 
 
-// Cancel negotiation
-async function cancelNegotiation(negotiationId) {
+            <div class="metric-card">
+                <span class="metric-label">
+                    Current Offer
+                </span>
 
-    const response = await fetch(
-        `${API_BASE_URL}/negotiations/${negotiationId}/cancel`,
-        {
-            method: "POST"
-        }
-    );
+                <span class="metric-value">
+                    ${formatCurrency(data.current_offer)}
+                </span>
+            </div>
 
-    if (!response.ok) {
-        throw new Error(
-            `Failed to cancel negotiation: ${response.status}`
-        );
-    }
 
-    return await response.json();
+            <div class="metric-card">
+                <span class="metric-label">
+                    Your Offer
+                </span>
+
+                <span class="metric-value">
+                    ${formatCurrency(data.last_human_offer)}
+                </span>
+            </div>
+
+
+            <div class="metric-card">
+                <span class="metric-label">
+                    AI Offer
+                </span>
+
+                <span class="metric-value">
+                    ${formatCurrency(data.last_ai_offer)}
+                </span>
+            </div>
+
+
+            <div class="metric-card">
+                <span class="metric-label">
+                    Agreed Price
+                </span>
+
+                <span class="metric-value">
+                    ${formatCurrency(data.agreed_price)}
+                </span>
+            </div>
+
+
+            ${
+                data.status === "deadlocked"
+                    ? `
+                        <div class="deadlock-message">
+                            <strong>Deadlock Reason</strong>
+
+                            <p>
+                                ${
+                                    data.deadlock_reason ||
+                                    "Negotiation reached a deadlock."
+                                }
+                            </p>
+                        </div>
+                    `
+                    : ""
+            }
+
+        </div>
+    `;
 }
 
 
 export {
-    startNegotiation,
-    getNegotiationState,
-    sendOffer,
-    getNegotiationHistory,
-    cancelNegotiation
+    renderMetrics,
+    formatCurrency,
+    formatStatus
 };
