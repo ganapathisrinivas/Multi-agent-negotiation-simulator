@@ -27,10 +27,13 @@ def extract_offer_from_text(text: Optional[str]) -> Optional[float]:
 
     for pattern, multiplier in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
+
         if match:
             value = float(match.group(1).replace(",", ""))
+
             if multiplier == 1 and value < 1000:
                 value *= 100000
+
             return value * multiplier
 
     return None
@@ -42,6 +45,7 @@ def format_inr(amount: Optional[float]) -> str:
         return "N/A"
 
     amount = float(amount)
+
     return (
         f"₹{amount / 10000000:.2f} Cr"
         if amount >= 10000000
@@ -59,16 +63,27 @@ def detect_human_intent(message: str) -> str:
     text = message.lower().strip()
 
     accepts = [
-        r"\bi accept\b", r"\bwe accept\b", r"\bi agree\b",
-        r"\bagreed\b", r"\bdeal\b", r"\bit'?s a deal\b",
-        r"\bi accept the offer\b", r"\bi will take it\b",
-        r"\bdeal done\b", r"\bwe have a deal\b"
+        r"\bi accept\b",
+        r"\bwe accept\b",
+        r"\bi agree\b",
+        r"\bagreed\b",
+        r"\bdeal\b",
+        r"\bit'?s a deal\b",
+        r"\bi accept the offer\b",
+        r"\bi will take it\b",
+        r"\bdeal done\b",
+        r"\bwe have a deal\b"
     ]
 
     rejects = [
-        r"\bi reject\b", r"\bno deal\b", r"\bwalk away\b",
-        r"\bi quit\b", r"\bcannot agree\b", r"\btoo expensive\b",
-        r"\bnot interested\b", r"\bcancel\b"
+        r"\bi reject\b",
+        r"\bno deal\b",
+        r"\bwalk away\b",
+        r"\bi quit\b",
+        r"\bcannot agree\b",
+        r"\btoo expensive\b",
+        r"\bnot interested\b",
+        r"\bcancel\b"
     ]
 
     if any(re.search(p, text) for p in accepts):
@@ -89,23 +104,37 @@ class PracticeAIAgent:
 
     def __init__(self):
         load_dotenv()
+
         self.client = None
-        self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+        self.model_name = os.getenv(
+            "GEMINI_MODEL",
+            "gemini-2.5-flash"
+        )
 
         api_key = os.getenv("GEMINI_API_KEY")
+
         if api_key:
             try:
                 from google import genai
-                self.client = genai.Client(api_key=api_key)
+
+                self.client = genai.Client(
+                    api_key=api_key
+                )
+
             except Exception as error:
-                print(f"[PracticeAgent] Gemini initialization skipped: {error}")
+                print(
+                    f"[PracticeAgent] "
+                    f"Gemini initialization skipped: {error}"
+                )
 
     # ========================================================
     # INITIAL GREETING
     # ========================================================
 
     def generate_initial_greeting(
-        self, session: PracticeNegotiationSession
+        self,
+        session: PracticeNegotiationSession
     ) -> str:
 
         title = (
@@ -113,47 +142,66 @@ class PracticeAIAgent:
             or session.property.get("Name")
             or "this property"
         )
-        location = session.property.get("Location", "Prime Location")
-        price = format_inr(session.reference_price)
-        personality = session.ai_personality.lower().replace("-", "_")
+
+        location = session.property.get(
+            "Location",
+            "Prime Location"
+        )
+
+        price = format_inr(
+            session.reference_price
+        )
+
+        personality = (
+            session.ai_personality
+            .lower()
+            .replace("-", "_")
+        )
 
         if session.ai_role == "seller":
+
             if personality == "aggressive":
                 return (
-                    f"Welcome. I am the seller for {title} in {location}, "
-                    f"listed at {price}. This property is in high demand. "
+                    f"Welcome. I am the seller for {title} "
+                    f"in {location}, listed at {price}. "
+                    "This property is in high demand. "
                     "What is your opening offer?"
                 )
+
             if personality == "risk_averse":
                 return (
-                    f"Hello! I represent the seller of {title} at {location}. "
-                    f"The verified price is {price}. I will consider serious "
-                    "and well-structured offers."
+                    f"Hello! I represent the seller of {title} "
+                    f"at {location}. The verified price is {price}. "
+                    "I will consider serious and well-structured offers."
                 )
+
             return (
-                f"Hello and welcome! I am the seller of {title} in {location}. "
-                f"The asking price is {price}. I am happy to work toward a "
-                "fair win-win deal. What is your offer?"
+                f"Hello and welcome! I am the seller of {title} "
+                f"in {location}. The asking price is {price}. "
+                "I am happy to work toward a fair win-win deal. "
+                "What is your offer?"
             )
 
         if personality == "aggressive":
             return (
-                f"Hello. I am a serious buyer evaluating {title} in {location}. "
-                f"I reviewed the reference price of {price}. What is your "
-                "best asking price?"
+                f"Hello. I am a serious buyer evaluating {title} "
+                f"in {location}. I reviewed the reference price "
+                f"of {price}. What is your best asking price?"
             )
 
         if personality == "risk_averse":
             return (
-                f"Greetings. I am interested in {title} in {location}. "
-                f"I have reviewed the listed price of {price}. Please share "
-                "your opening price proposal."
+                f"Greetings. I am interested in {title} "
+                f"in {location}. I have reviewed the listed "
+                f"price of {price}. Please share your opening "
+                "price proposal."
             )
 
         return (
-            f"Hello! I am interested in buying {title} in {location}. "
-            f"I saw the listed price is {price}. I would like to reach a "
-            "mutually beneficial agreement. What is your opening proposal?"
+            f"Hello! I am interested in buying {title} "
+            f"in {location}. I saw the listed price is {price}. "
+            "I would like to reach a mutually beneficial agreement. "
+            "What is your opening proposal?"
         )
 
     # ========================================================
@@ -167,8 +215,16 @@ class PracticeAIAgent:
         explicit_offer: Optional[float] = None
     ) -> Dict[str, Any]:
 
-        personality = session.ai_personality.lower().replace("-", "_")
-        intent = detect_human_intent(human_message)
+        personality = (
+            session.ai_personality
+            .lower()
+            .replace("-", "_")
+        )
+
+        intent = detect_human_intent(
+            human_message
+        )
+
         offer = (
             explicit_offer
             if explicit_offer is not None
@@ -176,40 +232,61 @@ class PracticeAIAgent:
         )
 
         # Human accepts the AI's previous offer.
-        if intent == "ACCEPT" and session.last_ai_offer is not None:
+        if (
+            intent == "ACCEPT"
+            and session.last_ai_offer is not None
+        ):
+
             agreed = session.last_ai_offer
+
             return {
                 "decision": "ACCEPT",
                 "counter_offer": agreed,
                 "message": self._generate_acceptance_message(
-                    session, agreed, True
+                    session,
+                    agreed,
+                    True
                 ),
-                "reason": f"Human accepted {format_inr(agreed)}."
+                "reason": (
+                    f"Human accepted "
+                    f"{format_inr(agreed)}."
+                )
             }
 
         # Human explicitly rejects without giving another offer.
         if intent == "REJECT" and offer is None:
+
             return {
                 "decision": "REJECT",
                 "counter_offer": None,
                 "message": self._generate_rejection_message(
-                    session, "Human participant rejected the negotiation."
+                    session,
+                    "Human participant rejected the negotiation."
                 ),
                 "reason": "Human indicated rejection."
             }
 
         # Check whether the negotiation is actually stuck.
-        deadlock = self._detect_deadlock(session, offer)
+        deadlock = self._detect_deadlock(
+            session,
+            offer
+        )
+
         if deadlock:
             return deadlock
 
         if session.ai_role == "seller":
+
             return self._evaluate_as_seller(
-                session, offer, personality
+                session,
+                offer,
+                personality
             )
 
         return self._evaluate_as_buyer(
-            session, offer, personality
+            session,
+            offer,
+            personality
         )
 
     # ========================================================
@@ -222,89 +299,225 @@ class PracticeAIAgent:
         human_offer: Optional[float]
     ) -> Optional[Dict[str, Any]]:
         """
-        Detect real negotiation deadlock.
+        Detect a genuine negotiation deadlock.
 
-        Deadlock occurs when:
-        1. Human repeats almost the same offer at least 3 times.
-        2. AI repeats almost the same counter-offer at least 3 times.
-        3. Human offers show almost no movement across 3 offers.
+        Deadlock rules:
 
-        A small price gap ALONE is NOT a deadlock.
+        1. A single repeated offer is NOT a deadlock.
+        2. Two repeated offers are NOT a deadlock.
+        3. AI repeating alone is NOT a deadlock.
+        4. Human repeating alone is NOT a deadlock.
+        5. A small price gap is NOT a deadlock.
+        6. BOTH human and AI must show no meaningful price movement.
+        7. The lack of movement must continue for 3 consecutive
+           stalled transitions.
         """
 
         if human_offer is None:
             return None
 
         try:
-            current = float(human_offer)
+            current_human = float(
+                human_offer
+            )
+
         except (TypeError, ValueError):
             return None
 
         history = session.history or []
 
-        # Previous human offers.
+        # ====================================================
+        # COLLECT HUMAN OFFERS FROM HISTORY
+        # ====================================================
+
         human_offers = []
+
         for item in history:
-            if item.get("sender") == f"human_{session.human_role}":
+
+            if item.get("sender") == (
+                f"human_{session.human_role}"
+            ):
+
                 value = item.get("offer")
+
                 if value is not None:
+
                     try:
-                        human_offers.append(float(value))
+                        human_offers.append(
+                            float(value)
+                        )
+
                     except (TypeError, ValueError):
                         pass
 
-        # Current human offer is included for comparison.
-        human_values = human_offers + [current]
+        # IMPORTANT:
+        #
+        # The current human offer may already exist inside
+        # session.history.
+        #
+        # Therefore, do NOT blindly append it.
+        #
+        # This prevents one repeated offer from being counted
+        # twice and incorrectly triggering deadlock.
 
-        # Same/nearly same human offer repeated 3 times.
-        if len(human_values) >= 3:
-            recent = human_values[-3:]
-            if max(recent) - min(recent) <= 1000:
-                return self._create_deadlock_response(
-                    session,
-                    "The human participant has repeated almost the "
-                    "same offer for several rounds."
-                )
+        if (
+            not human_offers
+            or human_offers[-1] != current_human
+        ):
 
-        # Previous AI offers.
+            human_offers.append(
+                current_human
+            )
+
+        # ====================================================
+        # COLLECT AI OFFERS FROM HISTORY
+        # ====================================================
+
         ai_offers = []
+
         for item in history:
-            if item.get("sender") == f"ai_{session.ai_role}":
+
+            if item.get("sender") == (
+                f"ai_{session.ai_role}"
+            ):
+
                 value = item.get("offer")
+
                 if value is not None:
+
                     try:
-                        ai_offers.append(float(value))
+                        ai_offers.append(
+                            float(value)
+                        )
+
                     except (TypeError, ValueError):
                         pass
+
+        # Add current AI offer only if it is not already
+        # present as the latest AI history entry.
 
         if session.last_ai_offer is not None:
-            try:
-                ai_values = ai_offers + [float(session.last_ai_offer)]
-            except (TypeError, ValueError):
-                ai_values = ai_offers
 
-            if len(ai_values) >= 3:
-                recent = ai_values[-3:]
-                if max(recent) - min(recent) <= 1000:
-                    return self._create_deadlock_response(
-                        session,
-                        "The AI has repeated almost the same counter-offer "
-                        "for several rounds."
+            try:
+
+                current_ai = float(
+                    session.last_ai_offer
+                )
+
+                if (
+                    not ai_offers
+                    or ai_offers[-1] != current_ai
+                ):
+
+                    ai_offers.append(
+                        current_ai
                     )
 
-        # Human movement is extremely small.
-        if len(human_values) >= 4:
-            recent = human_values[-4:]
-            reference = max(abs(session.reference_price), 1)
+            except (TypeError, ValueError):
+                pass
 
-            if (
-                max(recent) - min(recent)
-            ) / reference < 0.001:
-                return self._create_deadlock_response(
-                    session,
-                    "Human offers have shown almost no movement "
-                    "over several rounds."
+        # ====================================================
+        # HUMAN STALLED FOR 3 CONSECUTIVE TRANSITIONS
+        # ====================================================
+
+        human_stalled_rounds = 0
+
+        if len(human_offers) >= 2:
+
+            for index in range(
+                len(human_offers) - 1,
+                0,
+                -1
+            ):
+
+                change = abs(
+                    human_offers[index]
+                    - human_offers[index - 1]
                 )
+
+                # ₹1,000 or less means no meaningful movement.
+                if change <= 1000:
+
+                    human_stalled_rounds += 1
+
+                else:
+
+                    # Once meaningful movement is found,
+                    # older rounds do not matter.
+                    break
+
+        # ====================================================
+        # AI STALLED FOR 3 CONSECUTIVE TRANSITIONS
+        # ====================================================
+
+        ai_stalled_rounds = 0
+
+        if len(ai_offers) >= 2:
+
+            for index in range(
+                len(ai_offers) - 1,
+                0,
+                -1
+            ):
+
+                change = abs(
+                    ai_offers[index]
+                    - ai_offers[index - 1]
+                )
+
+                if change <= 1000:
+
+                    ai_stalled_rounds += 1
+
+                else:
+
+                    break
+
+        # ====================================================
+        # FINAL DEADLOCK DECISION
+        # ====================================================
+
+        # BOTH sides must be stalled for at least
+        # 3 consecutive transitions.
+        #
+        # Example:
+        #
+        # Human:
+        # ₹28.50L
+        # → ₹28.50L
+        #
+        # = 1 stalled transition
+        # = NOT deadlock
+        #
+        # Human:
+        # ₹28.50L
+        # → ₹28.50L
+        # → ₹28.50L
+        #
+        # = 2 stalled transitions
+        # = NOT deadlock
+        #
+        # Human:
+        # ₹28.50L
+        # → ₹28.50L
+        # → ₹28.50L
+        # → ₹28.50L
+        #
+        # = 3 stalled transitions
+        #
+        # But AI must ALSO have 3 stalled transitions.
+
+        if (
+            human_stalled_rounds >= 3
+            and ai_stalled_rounds >= 3
+        ):
+
+            return self._create_deadlock_response(
+                session,
+                "Both the human participant and AI "
+                "have shown almost no price movement "
+                "for three consecutive rounds."
+            )
 
         return None
 
@@ -323,9 +536,10 @@ class PracticeAIAgent:
             "counter_offer": None,
             "message": (
                 "DEADLOCK DETECTED\n\n"
-                "The negotiation appears to have stopped making "
-                "meaningful progress. Both parties should review "
-                "their offer strategy or restart the negotiation."
+                "The negotiation appears to have stopped "
+                "making meaningful progress. Both parties "
+                "should review their offer strategy or "
+                "restart the negotiation."
             ),
             "reason": reason
         }
@@ -341,9 +555,18 @@ class PracticeAIAgent:
         personality: str
     ) -> Dict[str, Any]:
 
-        reference = float(session.reference_price)
-        target = float(session.target_price)
-        minimum = float(session.minimum_price)
+        reference = float(
+            session.reference_price
+        )
+
+        target = float(
+            session.target_price
+        )
+
+        minimum = float(
+            session.minimum_price
+        )
+
         last = (
             float(session.last_ai_offer)
             if session.last_ai_offer is not None
@@ -351,42 +574,77 @@ class PracticeAIAgent:
         )
 
         if offer is None:
+
             return {
                 "decision": "COUNTER",
                 "counter_offer": last,
                 "message": (
-                    f"I need a specific price offer to continue. "
-                    f"The property is listed at {format_inr(reference)}."
+                    "I need a specific price offer to continue. "
+                    f"The property is listed at "
+                    f"{format_inr(reference)}."
                 ),
-                "reason": "No numerical offer was provided."
+                "reason": (
+                    "No numerical offer was provided."
+                )
             }
 
         offer = float(offer)
 
         # Offer meets seller's current level.
         if offer >= last:
-            return self._accept_result(session, offer)
+
+            return self._accept_result(
+                session,
+                offer
+            )
 
         # Offer meets seller target.
         if offer >= target:
-            return self._accept_result(session, offer)
+
+            return self._accept_result(
+                session,
+                offer
+            )
 
         # Aggressive seller rejects extreme lowball offers.
-        if personality == "aggressive" and offer < reference * 0.70:
+        if (
+            personality == "aggressive"
+            and offer < reference * 0.70
+        ):
+
             return {
                 "decision": "REJECT",
                 "counter_offer": None,
                 "message": (
-                    f"Your offer of {format_inr(offer)} is far below "
-                    "the property's market value and is unacceptable."
+                    f"Your offer of {format_inr(offer)} "
+                    "is far below the property's market "
+                    "value and is unacceptable."
                 ),
-                "reason": "Aggressive seller rejected a very low offer."
+                "reason": (
+                    "Aggressive seller rejected a "
+                    "very low offer."
+                )
             }
 
         rates = {
-            "aggressive": (0.15, max(minimum, reference * 0.88)),
-            "risk_averse": (0.30, max(minimum, reference * 0.80)),
-            "collaborative": (0.45, minimum)
+            "aggressive": (
+                0.15,
+                max(
+                    minimum,
+                    reference * 0.88
+                )
+            ),
+            "risk_averse": (
+                0.30,
+                max(
+                    minimum,
+                    reference * 0.80
+                )
+            ),
+            "collaborative": (
+                0.45,
+                minimum
+            )
         }
 
         concession, floor = rates.get(
@@ -394,25 +652,52 @@ class PracticeAIAgent:
             rates["collaborative"]
         )
 
-        new_counter = last - (last - offer) * concession
-        new_counter = round_price(max(floor, min(new_counter, last)))
+        new_counter = (
+            last
+            - (last - offer) * concession
+        )
+
+        new_counter = round_price(
+            max(
+                floor,
+                min(
+                    new_counter,
+                    last
+                )
+            )
+        )
 
         # Collaborative personality can close a very small gap.
         if (
-            personality == "collaborative"
-            and abs(new_counter - offer) <= reference * 0.01
-        ) or new_counter <= offer:
-            return self._accept_result(session, offer)
+            (
+                personality == "collaborative"
+                and abs(
+                    new_counter - offer
+                ) <= reference * 0.01
+            )
+            or new_counter <= offer
+        ):
+
+            return self._accept_result(
+                session,
+                offer
+            )
 
         return {
             "decision": "COUNTER",
             "counter_offer": new_counter,
             "message": self._generate_counter_message(
-                session, offer, new_counter, personality, "seller"
+                session,
+                offer,
+                new_counter,
+                personality,
+                "seller"
             ),
             "reason": (
-                f"Seller countered at {format_inr(new_counter)} "
-                f"using a {int(concession * 100)}% concession step."
+                f"Seller countered at "
+                f"{format_inr(new_counter)} "
+                f"using a {int(concession * 100)}% "
+                "concession step."
             )
         }
 
@@ -427,9 +712,18 @@ class PracticeAIAgent:
         personality: str
     ) -> Dict[str, Any]:
 
-        reference = float(session.reference_price)
-        target = float(session.target_price)
-        maximum = float(session.maximum_price)
+        reference = float(
+            session.reference_price
+        )
+
+        target = float(
+            session.target_price
+        )
+
+        maximum = float(
+            session.maximum_price
+        )
+
         last = (
             float(session.last_ai_offer)
             if session.last_ai_offer is not None
@@ -437,42 +731,77 @@ class PracticeAIAgent:
         )
 
         if offer is None:
+
             return {
                 "decision": "COUNTER",
                 "counter_offer": last,
                 "message": (
-                    f"I need a concrete selling price to continue. "
-                    f"The reference price is {format_inr(reference)}."
+                    "I need a concrete selling price "
+                    "to continue. The reference price is "
+                    f"{format_inr(reference)}."
                 ),
-                "reason": "No numerical price was provided."
+                "reason": (
+                    "No numerical offer was provided."
+                )
             }
 
         offer = float(offer)
 
         # Seller price meets buyer's current offer.
         if offer <= last:
-            return self._accept_result(session, offer)
+
+            return self._accept_result(
+                session,
+                offer
+            )
 
         # Seller price meets buyer target.
         if offer <= target:
-            return self._accept_result(session, offer)
+
+            return self._accept_result(
+                session,
+                offer
+            )
 
         # Aggressive buyer rejects an excessive price.
-        if personality == "aggressive" and offer > reference * 1.25:
+        if (
+            personality == "aggressive"
+            and offer > reference * 1.25
+        ):
+
             return {
                 "decision": "REJECT",
                 "counter_offer": None,
                 "message": (
-                    f"Your price of {format_inr(offer)} is excessively "
-                    "above the market reference. I cannot proceed."
+                    f"Your price of {format_inr(offer)} "
+                    "is excessively above the market "
+                    "reference. I cannot proceed."
                 ),
-                "reason": "Aggressive buyer rejected excessive price."
+                "reason": (
+                    "Aggressive buyer rejected "
+                    "excessive price."
+                )
             }
 
         rates = {
-            "aggressive": (0.15, min(maximum, reference * 0.90)),
-            "risk_averse": (0.30, min(maximum, reference * 0.95)),
-            "collaborative": (0.45, maximum)
+            "aggressive": (
+                0.15,
+                min(
+                    maximum,
+                    reference * 0.90
+                )
+            ),
+            "risk_averse": (
+                0.30,
+                min(
+                    maximum,
+                    reference * 0.95
+                )
+            ),
+            "collaborative": (
+                0.45,
+                maximum
+            )
         }
 
         concession, ceiling = rates.get(
@@ -480,24 +809,51 @@ class PracticeAIAgent:
             rates["collaborative"]
         )
 
-        new_counter = last + (offer - last) * concession
-        new_counter = round_price(max(last, min(new_counter, ceiling)))
+        new_counter = (
+            last
+            + (offer - last) * concession
+        )
+
+        new_counter = round_price(
+            max(
+                last,
+                min(
+                    new_counter,
+                    ceiling
+                )
+            )
+        )
 
         if (
-            personality == "collaborative"
-            and abs(new_counter - offer) <= reference * 0.01
-        ) or new_counter >= offer:
-            return self._accept_result(session, offer)
+            (
+                personality == "collaborative"
+                and abs(
+                    new_counter - offer
+                ) <= reference * 0.01
+            )
+            or new_counter >= offer
+        ):
+
+            return self._accept_result(
+                session,
+                offer
+            )
 
         return {
             "decision": "COUNTER",
             "counter_offer": new_counter,
             "message": self._generate_counter_message(
-                session, offer, new_counter, personality, "buyer"
+                session,
+                offer,
+                new_counter,
+                personality,
+                "buyer"
             ),
             "reason": (
-                f"Buyer countered at {format_inr(new_counter)} "
-                f"using a {int(concession * 100)}% concession step."
+                f"Buyer countered at "
+                f"{format_inr(new_counter)} "
+                f"using a {int(concession * 100)}% "
+                "concession step."
             )
         }
 
@@ -514,8 +870,14 @@ class PracticeAIAgent:
         return {
             "decision": "ACCEPT",
             "counter_offer": price,
-            "message": self._generate_acceptance_message(session, price),
-            "reason": f"Offer of {format_inr(price)} is acceptable."
+            "message": self._generate_acceptance_message(
+                session,
+                price
+            ),
+            "reason": (
+                f"Offer of {format_inr(price)} "
+                "is acceptable."
+            )
         }
 
     def _generate_acceptance_message(
@@ -532,14 +894,18 @@ class PracticeAIAgent:
         )
 
         if by_human:
+
             return (
-                f"Fantastic! We have reached an agreement on {title} "
-                f"at {format_inr(price)}. The deal is officially finalized!"
+                f"Fantastic! We have reached an "
+                f"agreement on {title} at "
+                f"{format_inr(price)}. "
+                "The deal is officially finalized!"
             )
 
         return (
-            f"DECISION: ACCEPT\n\n"
-            f"I accept your offer of {format_inr(price)} for {title}. "
+            "DECISION: ACCEPT\n\n"
+            f"I accept your offer of "
+            f"{format_inr(price)} for {title}. "
             "We have reached a successful agreement."
         )
 
@@ -552,7 +918,8 @@ class PracticeAIAgent:
         return (
             "DECISION: REJECT\n\n"
             "We were unable to reach an agreement. "
-            f"The negotiation is concluded. Reason: {reason}"
+            "The negotiation is concluded. "
+            f"Reason: {reason}"
         )
 
     # ========================================================
@@ -569,6 +936,7 @@ class PracticeAIAgent:
     ) -> str:
 
         if self.client:
+
             result = self._try_gemini_response(
                 session,
                 human_offer,
@@ -576,45 +944,104 @@ class PracticeAIAgent:
                 personality,
                 role
             )
+
             if result:
                 return result
 
-        human = format_inr(human_offer)
-        counter = format_inr(counter_offer)
+        human = format_inr(
+            human_offer
+        )
+
+        counter = format_inr(
+            counter_offer
+        )
 
         if role == "seller":
+
             templates = {
+
                 "aggressive": [
-                    f"Your offer of {human} is too low. My best price right now is {counter}.",
-                    f"I cannot accept {human}. My revised price is {counter}."
+                    (
+                        f"Your offer of {human} is too low. "
+                        f"My best price right now is {counter}."
+                    ),
+                    (
+                        f"I cannot accept {human}. "
+                        f"My revised price is {counter}."
+                    )
                 ],
+
                 "risk_averse": [
-                    f"Thank you for {human}. Based on the property valuation, I can counter at {counter}.",
-                    f"I appreciate your proposal. To maintain a fair valuation, my counter is {counter}."
+                    (
+                        f"Thank you for {human}. "
+                        "Based on the property valuation, "
+                        f"I can counter at {counter}."
+                    ),
+                    (
+                        "I appreciate your proposal. "
+                        "To maintain a fair valuation, "
+                        f"my counter is {counter}."
+                    )
                 ],
+
                 "collaborative": [
-                    f"Thank you for your offer of {human}. I can come down to {counter} to help us reach a deal.",
-                    f"I appreciate your proposal. Let's move closer to an agreement at {counter}."
+                    (
+                        f"Thank you for your offer of {human}. "
+                        f"I can come down to {counter} "
+                        "to help us reach a deal."
+                    ),
+                    (
+                        f"I appreciate your proposal. "
+                        f"Let's move closer to an agreement "
+                        f"at {counter}."
+                    )
                 ]
             }
+
         else:
+
             templates = {
+
                 "aggressive": [
-                    f"Your demand of {human} is too high. I can only offer {counter}.",
-                    f"{human} is above my valuation. My strict counter is {counter}."
+                    (
+                        f"Your demand of {human} is too high. "
+                        f"I can only offer {counter}."
+                    ),
+                    (
+                        f"{human} is above my valuation. "
+                        f"My strict counter is {counter}."
+                    )
                 ],
+
                 "risk_averse": [
-                    f"I reviewed {human}. To stay within a prudent budget, I can offer {counter}.",
-                    f"To avoid overpaying, my updated offer is {counter}."
+                    (
+                        f"I reviewed {human}. "
+                        "To stay within a prudent budget, "
+                        f"I can offer {counter}."
+                    ),
+                    (
+                        "To avoid overpaying, "
+                        f"my updated offer is {counter}."
+                    )
                 ],
+
                 "collaborative": [
-                    f"Thank you for your response of {human}. I can raise my offer to {counter}.",
-                    f"I appreciate your flexibility. I can increase my offer to {counter}."
+                    (
+                        f"Thank you for your response of {human}. "
+                        f"I can raise my offer to {counter}."
+                    ),
+                    (
+                        f"I appreciate your flexibility. "
+                        f"I can increase my offer to {counter}."
+                    )
                 ]
             }
 
         return random.choice(
-            templates.get(personality, templates["collaborative"])
+            templates.get(
+                personality,
+                templates["collaborative"]
+            )
         )
 
     # ========================================================
@@ -631,6 +1058,7 @@ class PracticeAIAgent:
     ) -> Optional[str]:
 
         try:
+
             prompt = f"""
 You are an AI {role} negotiating real estate with a human.
 
@@ -657,10 +1085,26 @@ Rules:
                 contents=prompt
             )
 
-            if response and getattr(response, "text", None):
-                return response.text.strip().replace("```", "")
+            if (
+                response
+                and getattr(
+                    response,
+                    "text",
+                    None
+                )
+            ):
+
+                return (
+                    response.text
+                    .strip()
+                    .replace("```", "")
+                )
 
         except Exception as error:
-            print(f"[PracticeAgent] Gemini generation error: {error}")
+
+            print(
+                f"[PracticeAgent] "
+                f"Gemini generation error: {error}"
+            )
 
         return None

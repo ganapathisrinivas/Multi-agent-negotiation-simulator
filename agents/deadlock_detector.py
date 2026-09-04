@@ -1,29 +1,23 @@
 from typing import List, Dict, Any
+import re
 
 
 class DeadlockDetector:
     """
-    Detects a stalled negotiation.
+    Detects a genuinely stalled negotiation.
 
-    IMPORTANT:
-    - This class does NOT decide prices.
-    - This class does NOT modify Buyer/Seller offers.
+    Important:
+    - Does NOT decide prices.
+    - Does NOT modify Buyer/Seller offers.
     - CounterofferEvaluator remains responsible for prices.
-    - This class only observes negotiation history.
+    - Only observes negotiation history.
 
-    Deadlock process:
+    Deadlock is detected when BOTH agents have stopped
+    making meaningful progress for the configured number
+    of consecutive rounds.
 
-        Negotiation continues
-              ↓
-        Offers stop moving
-              ↓
-        Stall threshold reached
-              ↓
-        Resolution attempt
-              ↓
-        Still stalled
-              ↓
-        Breakdown
+    Repeating a price once or twice does NOT automatically
+    mean deadlock.
     """
 
     def __init__(
@@ -31,15 +25,12 @@ class DeadlockDetector:
         stall_rounds: int = 3,
         minimum_price_change: float = 1000.0
     ):
-        self.stall_rounds = max(
-            1,
-            int(stall_rounds)
-        )
-
+        self.stall_rounds = max(1, int(stall_rounds))
         self.minimum_price_change = float(
             minimum_price_change
         )
 
+        # Prevent repeated resolution attempts.
         self.resolution_attempted = False
 
     # =========================================================
@@ -53,100 +44,80 @@ class DeadlockDetector:
         status: str = "active"
     ) -> Dict[str, Any]:
         """
-        Check the current negotiation history.
+        Check whether the negotiation is genuinely stalled.
 
-        Returns:
-
-        {
-            "deadlock": True / False,
-            "stalled_rounds": number,
-            "threshold": configured threshold,
-            "action": "CONTINUE",
-            "action": "RESOLUTION_ATTEMPT",
-            "action": "BREAKDOWN",
-            "reason": explanation
-        }
+        Rules:
+        1. Finished negotiations cannot be deadlocked.
+        2. One repeated price is not enough.
+        3. Each agent is checked separately.
+        4. Both agents must be stalled.
+        5. Exact agreement is handled by the negotiation runner.
         """
 
-        # -----------------------------------------------------
-        # Already finished negotiations cannot be deadlocked.
-        # -----------------------------------------------------
-
         if str(status).lower() != "active":
-
             return self._build_result(
                 deadlock=False,
                 stalled_rounds=0,
                 action="CONTINUE",
-                reason=(
-                    "Negotiation is no longer active."
-                )
+                reason="Negotiation is no longer active."
             )
-
-        # -----------------------------------------------------
-        # No history = nothing to detect.
-        # -----------------------------------------------------
 
         if not history:
-
             return self._build_result(
                 deadlock=False,
                 stalled_rounds=0,
                 action="CONTINUE",
-                reason=(
-                    "No negotiation history available."
-                )
+                reason="No negotiation history available."
             )
 
-        # -----------------------------------------------------
-        # Extract actual numeric offers.
-        # -----------------------------------------------------
+        offer_entries = self._extract_offer_entries(history)
 
-        offer_entries = self._extract_offer_entries(
-            history
-        )
-
-        # Need at least two offers to compare movement.
         if len(offer_entries) < 2:
-
             return self._build_result(
                 deadlock=False,
                 stalled_rounds=0,
                 action="CONTINUE",
-                reason=(
-                    "Not enough offers to detect deadlock."
-                )
+                reason="Not enough offers to detect deadlock."
             )
 
-        # -----------------------------------------------------
-        # Count consecutive stalled offer movements.
-        # -----------------------------------------------------
+        # Check each agent separately.
+        buyer_stalled = self._agent_stalled_rounds(
+            offer_entries,
+            "buyer"
+        )
 
-        stalled_rounds = (
-            self._calculate_stalled_rounds(
-                offer_entries
-            )
+        seller_stalled = self._agent_stalled_rounds(
+            offer_entries,
+            "seller"
+        )
+
+        # Deadlock requires BOTH agents to be stuck.
+        stalled_rounds = min(
+            buyer_stalled,
+            seller_stalled
         )
 
         # -----------------------------------------------------
-        # Threshold not reached.
+        # Negotiation is still progressing.
         # -----------------------------------------------------
 
-        if stalled_rounds < self.stall_rounds:
-
+        if (
+            buyer_stalled < self.stall_rounds
+            or seller_stalled < self.stall_rounds
+        ):
             return self._build_result(
                 deadlock=False,
                 stalled_rounds=stalled_rounds,
                 action="CONTINUE",
                 reason=(
-                    f"Negotiation is progressing. "
-                    f"{stalled_rounds} stalled movement(s) "
-                    f"detected."
+                    "Negotiation is still progressing. "
+                    f"Buyer stalled rounds: {buyer_stalled}; "
+                    f"Seller stalled rounds: {seller_stalled}."
                 )
             )
 
         # -----------------------------------------------------
-        # First deadlock detection.
+        # First detection → resolution attempt.
         # -----------------------------------------------------
 
         if not self.resolution_attempted:
@@ -158,14 +129,14 @@ class DeadlockDetector:
                 stalled_rounds=stalled_rounds,
                 action="RESOLUTION_ATTEMPT",
                 reason=(
-                    f"Negotiation has stalled for "
-                    f"{stalled_rounds} consecutive "
-                    f"offer movements."
+                    "Both Buyer and Seller have stopped "
+                    "making meaningful price progress for "
+                    f"{stalled_rounds} consecutive rounds."
                 )
             )
 
         # -----------------------------------------------------
-        # Deadlock remained after resolution attempt.
+        # Still stalled after resolution attempt.
         # -----------------------------------------------------
 
         return self._build_result(
@@ -173,7 +144,7 @@ class DeadlockDetector:
             stalled_rounds=stalled_rounds,
             action="BREAKDOWN",
             reason=(
-                "Negotiation remained stalled after "
+                "Both parties remained stalled after "
                 "the resolution attempt."
             )
         )
@@ -188,18 +159,6 @@ class DeadlockDetector:
     ) -> List[Dict[str, Any]]:
         """
         Extract numeric offers from negotiation history.
-
-        Supports the history format used by the current
-        OrchestratorAgent:
-
-            {
-                "round": 1,
-                "agent": "Buyer Agent",
-                "message": "..."
-            }
-
-        If an offer is not explicitly stored, the detector
-        attempts to extract it from the message.
         """
 
         entries = []
@@ -211,11 +170,8 @@ class DeadlockDetector:
 
             offer = entry.get("offer")
 
-            # -------------------------------------------------
-            # Current runner stores the offer inside the
-            # natural-language message.
-            # -------------------------------------------------
-
+            # If offer is not explicitly stored,
+            # extract it from the message.
             if offer is None:
 
                 message = entry.get(
@@ -231,7 +187,6 @@ class DeadlockDetector:
                 continue
 
             try:
-
                 offer = float(offer)
 
             except (
@@ -242,12 +197,8 @@ class DeadlockDetector:
 
             entries.append(
                 {
-                    "round": entry.get(
-                        "round"
-                    ),
-                    "agent": entry.get(
-                        "agent"
-                    ),
+                    "round": entry.get("round"),
+                    "agent": entry.get("agent"),
                     "offer": offer
                 }
             )
@@ -263,14 +214,12 @@ class DeadlockDetector:
         message
     ):
         """
-        Extract prices from messages.
-
-        Supports examples such as:
+        Supports:
 
             ₹54.00 lakhs
             ₹65.50 lakhs
             ₹5400000
-            COUNTEROFFER: ₹54.00 lakhs
+            ₹2 crore
         """
 
         if message is None:
@@ -281,8 +230,6 @@ class DeadlockDetector:
         # -----------------------------------------------------
         # Lakhs
         # -----------------------------------------------------
-
-        import re
 
         match = re.search(
             r'₹?\s*([\d,]+(?:\.\d+)?)\s*'
@@ -299,14 +246,9 @@ class DeadlockDetector:
             )
 
             try:
-
-                return (
-                    float(value) *
-                    100000
-                )
+                return float(value) * 100000
 
             except ValueError:
-
                 return None
 
         # -----------------------------------------------------
@@ -328,18 +270,13 @@ class DeadlockDetector:
             )
 
             try:
-
-                return (
-                    float(value) *
-                    10000000
-                )
+                return float(value) * 10000000
 
             except ValueError:
-
                 return None
 
         # -----------------------------------------------------
-        # Rupee amount
+        # Direct rupee amount
         # -----------------------------------------------------
 
         match = re.search(
@@ -355,48 +292,71 @@ class DeadlockDetector:
             )
 
             try:
-
                 return float(value)
 
             except ValueError:
-
                 return None
 
         return None
 
     # =========================================================
-    # CALCULATE STALLED ROUNDS
+    # AGENT-SPECIFIC STALL CHECK
     # =========================================================
 
-    def _calculate_stalled_rounds(
+    def _agent_stalled_rounds(
         self,
-        offer_entries: List[Dict[str, Any]]
+        offer_entries: List[Dict[str, Any]],
+        agent_type: str
     ) -> int:
         """
-        Count consecutive offer movements where the price
-        changed by less than minimum_price_change.
+        Count consecutive stalled offers for ONE agent.
 
-        The count starts from the latest offer and moves
-        backwards until meaningful movement is found.
+        Buyer offers are compared only with previous
+        Buyer offers.
+
+        Seller offers are compared only with previous
+        Seller offers.
+
+        This is important because Buyer and Seller naturally
+        move in opposite directions.
         """
 
-        if len(offer_entries) < 2:
+        agent_entries = []
+
+        for entry in offer_entries:
+
+            agent = str(
+                entry.get("agent", "")
+            ).lower()
+
+            if agent_type == "buyer":
+
+                if "buyer" in agent:
+                    agent_entries.append(entry)
+
+            elif agent_type == "seller":
+
+                if "seller" in agent:
+                    agent_entries.append(entry)
+
+        if len(agent_entries) < 2:
             return 0
 
         stalled = 0
 
+        # Start from the latest offer and move backwards.
         for index in range(
-            len(offer_entries) - 1,
+            len(agent_entries) - 1,
             0,
             -1
         ):
 
             current_offer = (
-                offer_entries[index]["offer"]
+                agent_entries[index]["offer"]
             )
 
             previous_offer = (
-                offer_entries[index - 1]["offer"]
+                agent_entries[index - 1]["offer"]
             )
 
             difference = abs(
@@ -404,12 +364,14 @@ class DeadlockDetector:
                 previous_offer
             )
 
+            # Same or very small movement.
             if difference < self.minimum_price_change:
 
                 stalled += 1
 
             else:
 
+                # Meaningful movement found.
                 break
 
             if stalled >= self.stall_rounds:
