@@ -7,5 +7,8 @@ agents/__pycache__/
 
 # Environment variables / API keys
 .env
+
 .venv/
 .pytest_cache/
+
+node_modules/

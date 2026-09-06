@@ -1,19 +1,19 @@
 import time
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, field, asdict
 from abc import ABC, abstractmethod
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
 class PracticeNegotiationSession:
     negotiation_id: str
-    mode: str  # "human_vs_ai"
-    status: str  # "active", "accepted", "rejected", "completed", "cancelled"
+    mode: str
+    status: str
     round: int
     max_rounds: int
-    human_role: str  # "buyer" or "seller"
-    ai_role: str  # "seller" or "buyer"
-    ai_personality: str  # "aggressive", "collaborative", "risk_averse"
+    human_role: str
+    ai_role: str
+    ai_personality: str
     property_index: int
     property: Dict[str, Any]
     reference_price: float
@@ -26,20 +26,19 @@ class PracticeNegotiationSession:
     last_ai_offer: Optional[float] = None
     agreed_price: Optional[float] = None
     history: List[Dict[str, Any]] = field(default_factory=list)
+    repeated_offer_count: int = 0
+    stagnant_round_count: int = 0
+    deadlock_tolerance: float = 1000.0
+    deadlock_threshold: int = 3
+    deadlock_reason: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
-        data = asdict(self)
-        return data
+        return asdict(self)
 
 
 class BaseNegotiationStore(ABC):
-    """
-    Abstract storage interface for negotiation sessions.
-    Allows easy switching between In-Memory, SQLite, PostgreSQL, MongoDB, etc.
-    """
-
     @abstractmethod
     def save(self, session: PracticeNegotiationSession) -> None:
         pass
@@ -58,10 +57,6 @@ class BaseNegotiationStore(ABC):
 
 
 class InMemoryNegotiationStore(BaseNegotiationStore):
-    """
-    In-memory thread-safe dictionary store for practice sessions.
-    """
-
     def __init__(self):
         self._sessions: Dict[str, PracticeNegotiationSession] = {}
 
@@ -76,7 +71,7 @@ class InMemoryNegotiationStore(BaseNegotiationStore):
         return list(self._sessions.values())
 
     def delete(self, negotiation_id: str) -> bool:
-        if negotiation_id in self._sessions:
-            del self._sessions[negotiation_id]
-            return True
-        return False
+        if negotiation_id not in self._sessions:
+            return False
+        del self._sessions[negotiation_id]
+        return True
