@@ -5,54 +5,71 @@ from typing import Dict, Any, Optional, Tuple
 from dotenv import load_dotenv
 
 from agents.practice_store import PracticeNegotiationSession
+from agents.counteroffer_evaluator import CounterofferEvaluator
+from agents.reasoning_engine import ReasoningEngine
 
 
-def extract_offer_from_text(text: Optional[str]) -> Optional[float]:
+def extract_offer_from_message(message: Optional[str]) -> Optional[float]:
     """
     Extract an offer amount in INR from a user text message.
-    Supports formats like:
-        - 2400000 / 2,400,000 / ₹2400000
-        - 24 lakhs / 24.5 lakhs / ₹24.5 lakh / 24L
-        - 2.5 crore / 2.5 cr / ₹2.5 crore
+    Supports Indian currency formats such as:
+        - Lakhs: 50 lakhs, 75 lakh, 75 lacs, 1.5 lac, 50L, ₹50 Lakhs
+        - Crores: 1 crore, 2.5 crore, 1 cr, 2.5cr, ₹1.5 Crores
+        - Formatted Indian/Western numbers: 50,00,000 / 5,00,000 / 1,00,00,000 / 5,000,000
+        - Direct numbers with currency symbols: ₹5000000 / Rs. 5000000 / INR 5000000
+        - Plain contextual & standalone numbers: 5000000 / 7500000
+        - Returns None for non-offer dialogue messages (e.g., 'I am interested in this property').
     """
-    if text is None:
+    if message is None:
         return None
 
-    text = str(text).strip()
+    text = str(message).strip()
+    if not text:
+        return None
 
-    # Lakhs format: 24 lakhs, 24.5 lakh, ₹24L
-    match = re.search(r'₹?\s*([\d,]+(?:\.\d+)?)\s*(?:lakhs?|lakh|[lL])\b', text, re.IGNORECASE)
+    # 1. Crores format: 2.5 crore, 1 crore, 2.5 cr, ₹1.5 crore, 2cr
+    match = re.search(r'(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)\s*(?:crores?|crore|crs?|cr)\b', text, re.IGNORECASE)
     if match:
         val = float(match.group(1).replace(',', ''))
-        return val * 100000
+        return val * 10000000.0
 
-    # Crores format: 2.5 crore, 2.5cr
-    match = re.search(r'₹?\s*([\d,]+(?:\.\d+)?)\s*(?:crores?|crore|cr)\b', text, re.IGNORECASE)
+    # 2. Lakhs format: 50 lakhs, 75 lakh, 75 lacs, 1.5 lac, 50L, ₹50.5 lakhs
+    match = re.search(r'(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)\s*(?:lakhs?|lakh|lacs?|lac|[lL])\b', text, re.IGNORECASE)
     if match:
         val = float(match.group(1).replace(',', ''))
-        return val * 10000000
+        return val * 100000.0
 
-    # Plain rupees with ₹ or INR or Rs.: ₹2400000
+    # 3. Formatted comma numbers (Indian format e.g. 50,00,000 / 5,00,000 or Western e.g. 5,000,000)
+    match = re.search(r'(?:₹|rs\.?|inr)?\s*(\b\d{1,3}(?:,\d{2,3})+(?:\.\d+)?\b)', text, re.IGNORECASE)
+    if match:
+        val = float(match.group(1).replace(',', ''))
+        return val
+
+    # 4. Currency prefix + plain number: ₹5000000, Rs. 5000000, INR 5000000
     match = re.search(r'(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)', text, re.IGNORECASE)
     if match:
         val = float(match.group(1).replace(',', ''))
         if val < 1000:
-            return val * 100000
+            return val * 100000.0
         return val
 
-    # Direct number in offer statement: "I offer 2400000", "offer is 2400000", "at 2500000"
-    match = re.search(r'(?:offer|price|at|pay|for|budget)?\s*[:\-]?\s*₹?\s*([\d,]{4,}(?:\.\d+)?)', text, re.IGNORECASE)
+    # 5. Direct number in offer statement: "I offer 5000000", "will give 2500000", "price is 5000000", "at 5000000", "pay 5000000"
+    match = re.search(r'(?:offer|give|pay|price|budget|counter|at|for|is|cost|amount|bid|propose|suggest|want|take)\s*(?:of|is|at|around|about|to)?\s*[:\-]?\s*₹?\s*(\b\d{4,}(?:\.\d+)?\b)', text, re.IGNORECASE)
     if match:
         val = float(match.group(1).replace(',', ''))
         return val
 
-    # Generic number search
-    match = re.search(r'\b([\d,]{4,}(?:\.\d+)?)\b', text)
+    # 6. Standalone large number (>= 10,000)
+    match = re.search(r'\b(\d{5,}(?:\.\d+)?)\b', text)
     if match:
         val = float(match.group(1).replace(',', ''))
         return val
 
     return None
+
+
+# Backward-compatibility alias
+extract_offer_from_text = extract_offer_from_message
 
 
 def format_inr(amount: Optional[float]) -> str:
@@ -189,32 +206,47 @@ class PracticeAIAgent:
         human_intent = detect_human_intent(human_message)
         
         # 1. Determine the offer amount from human
-        human_offer = explicit_offer if explicit_offer is not None else extract_offer_from_text(human_message)
+        human_offer = explicit_offer if explicit_offer is not None else extract_offer_from_message(human_message)
+
+        print(f"[PracticeAgent] evaluate_and_respond called: Intent={human_intent}, Role={session.ai_role}, Personality={personality}, HumanOffer={human_offer}")
+        print("[REASONING_ENGINE] Analyzing negotiation")
+        print("[COUNTEROFFER_EVALUATOR] Calculating decision")
 
         # 2. Check if human explicitly accepted the AI's previous offer
         if human_intent == "ACCEPT" and session.last_ai_offer is not None:
             agreed = session.last_ai_offer
-            return {
+            res = {
                 "decision": "ACCEPT",
                 "counter_offer": agreed,
                 "message": self._generate_acceptance_message(session, agreed, by_human=True),
                 "reason": f"Human participant accepted the AI's counter-offer of {format_inr(agreed)}."
             }
+            print(f"[AI] Decision: {res['decision']}")
+            if res.get("counter_offer") is not None:
+                print(f"[AI] Counter offer: {int(res['counter_offer'])}")
+            return res
 
         # 3. Check if human explicitly rejected / quit
         if human_intent == "REJECT" and human_offer is None:
-            return {
+            res = {
                 "decision": "REJECT",
                 "counter_offer": None,
                 "message": self._generate_rejection_message(session, "Human participant expressed rejection/walked away."),
                 "reason": "Human participant indicated they wish to reject or discontinue the negotiation."
             }
+            print(f"[AI] Decision: {res['decision']}")
+            return res
 
         # 4. If human provided an offer, evaluate based on AI Role & Personality
         if session.ai_role == "seller":
-            return self._evaluate_as_ai_seller(session, human_offer, human_message, personality)
+            res = self._evaluate_as_ai_seller(session, human_offer, human_message, personality)
         else:
-            return self._evaluate_as_ai_buyer(session, human_offer, human_message, personality)
+            res = self._evaluate_as_ai_buyer(session, human_offer, human_message, personality)
+
+        print(f"[AI] Decision: {res['decision']}")
+        if res.get("counter_offer") is not None:
+            print(f"[AI] Counter offer: {int(res['counter_offer'])}")
+        return res
 
     # =========================================================================
     # AI SELLER LOGIC
@@ -231,17 +263,42 @@ class PracticeAIAgent:
         min_price = session.minimum_price
         last_ai_offer = session.last_ai_offer or ref_price
 
-        # If human gave no numeric offer, ask for one
+        # If human gave no numeric offer (conversational message e.g. "Your price is too high. Can you reduce it?")
         if human_offer is None:
-            msg = (
-                f"I hear you, but to proceed I need a specific price offer in numbers or lakhs. "
-                f"The property is listed at {format_inr(ref_price)}. What amount are you proposing?"
-            )
+            if personality == "aggressive":
+                concession = ref_price * 0.02
+                new_counter = max(last_ai_offer - concession, min_price)
+                new_counter = round_price(new_counter)
+                msg = (
+                    f"This property is in high demand with strong interest in this locality. "
+                    f"Considering the value, the best price I can offer right now is {format_inr(new_counter)}. "
+                    f"What specific counter-offer would you like to propose?"
+                )
+                reason = "Aggressive seller maintains strong price stance and offers minimal concession."
+            elif personality == "risk_averse":
+                concession = ref_price * 0.04
+                new_counter = max(last_ai_offer - concession, min_price)
+                new_counter = round_price(new_counter)
+                msg = (
+                    f"I appreciate your perspective. To ensure a safe, fair transaction in line with market benchmarks, "
+                    f"I can adjust my price to {format_inr(new_counter)}. Please let me know your thoughts."
+                )
+                reason = "Risk-averse seller makes a cautious price adjustment based on verified market valuation."
+            else:  # collaborative
+                concession = ref_price * 0.06
+                new_counter = max(last_ai_offer - concession, target_price)
+                new_counter = round_price(new_counter)
+                msg = (
+                    f"I understand your concern. Considering the property's value and working towards a win-win deal, "
+                    f"I can reduce the price to {format_inr(new_counter)}. How does that sound?"
+                )
+                reason = "Collaborative seller offers a constructive price concession to foster agreement."
+
             return {
                 "decision": "COUNTER",
-                "counter_offer": last_ai_offer,
+                "counter_offer": new_counter,
                 "message": msg,
-                "reason": "Human provided commentary without a specific offer amount."
+                "reason": reason
             }
 
         human_offer = float(human_offer)
@@ -346,15 +403,39 @@ class PracticeAIAgent:
         last_ai_offer = session.last_ai_offer or session.minimum_price
 
         if human_offer is None:
-            msg = (
-                f"Thank you for your message. As a prospective buyer, I need a concrete price figure for this property. "
-                f"The reference price is {format_inr(ref_price)}. What price are you offering to sell at?"
-            )
+            if personality == "aggressive":
+                step = ref_price * 0.02
+                new_counter = min(last_ai_offer + step, target_price)
+                new_counter = round_price(new_counter)
+                msg = (
+                    f"I am a serious investor evaluating the property carefully. "
+                    f"My standing offer is {format_inr(new_counter)}. Let me know if you can meet me at this level."
+                )
+                reason = "Aggressive buyer maintains a disciplined offer stance."
+            elif personality == "risk_averse":
+                step = ref_price * 0.03
+                new_counter = min(last_ai_offer + step, target_price)
+                new_counter = round_price(new_counter)
+                msg = (
+                    f"I have reviewed verified pricing benchmarks for this area. "
+                    f"To proceed safely within prudent limits, I can offer {format_inr(new_counter)}."
+                )
+                reason = "Risk-averse buyer offers a conservative price increment based on market metrics."
+            else:  # collaborative
+                step = ref_price * 0.05
+                new_counter = min(last_ai_offer + step, max_budget)
+                new_counter = round_price(new_counter)
+                msg = (
+                    f"Thank you for your response! I am very interested in reaching an agreement. "
+                    f"In the spirit of collaboration, I can increase my offer to {format_inr(new_counter)}."
+                )
+                reason = "Collaborative buyer makes a cooperative offer increase to advance negotiations."
+
             return {
                 "decision": "COUNTER",
-                "counter_offer": last_ai_offer,
+                "counter_offer": new_counter,
                 "message": msg,
-                "reason": "Human seller provided response without a clear numerical price."
+                "reason": reason
             }
 
         human_offer = float(human_offer)

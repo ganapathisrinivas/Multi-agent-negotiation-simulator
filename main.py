@@ -13,6 +13,7 @@ if sys.platform == "win32":
         pass
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 
 from dataset_manager import load_dataset
 from negotiation_runner import run_negotiation
@@ -25,15 +26,41 @@ from agents.practice_store import (
 )
 from agents.practice_agent import (
     PracticeAIAgent,
+    extract_offer_from_message,
     extract_offer_from_text,
     format_inr
 )
 
 
+tags_metadata = [
+    {
+        "name": "Human vs AI Practice Mode",
+        "description": "Interactive Human vs AI real-estate negotiation chat. Direct UI available at [**/practice**](/practice).",
+    },
+    {
+        "name": "AI vs AI Simulation",
+        "description": "Autonomous multi-agent simulation where AI Buyer and AI Seller negotiate across rounds.",
+    },
+    {
+        "name": "Properties & Scenarios",
+        "description": "Dataset queries and scenario definitions.",
+    },
+]
+
 app = FastAPI(
     title="Real Estate Negotiation Platform",
-    description="AI-Driven Multi-Agent Negotiation Training & Simulation Platform with Interactive Human Practice Mode",
-    version="1.1.0"
+    description="""
+## 🏢 Real Estate Negotiation Platform & AI Practice Mode
+
+### 💬 **[👉 Click Here to Open Live Chat UI (`/practice`)](/practice)**
+
+- **Interactive Practice UI**: [`/practice`](/practice)
+- **Human vs AI APIs**: `POST /negotiations/practice` & `POST /negotiations/{negotiation_id}/message`
+- **AI vs AI Multi-Agent Simulation**: `POST /negotiations`
+- **Property Catalog**: `GET /properties`
+""",
+    version="1.2.0",
+    openapi_tags=tags_metadata
 )
 
 
@@ -54,6 +81,57 @@ practice_store = InMemoryNegotiationStore()
 
 # Practice AI Agent
 practice_agent = PracticeAIAgent()
+
+
+# =====================================================
+# ROOT & HEALTH ENDPOINTS
+# =====================================================
+
+@app.get("/")
+def home():
+    return {
+        "message": "Real Estate Negotiation Platform API is running",
+        "docs": "/docs",
+        "practice_ui": "/practice",
+        "features": [
+            "AI vs AI Multi-Agent Simulation (/negotiations)",
+            "Human vs AI Interactive Practice Mode (/negotiations/practice)",
+            "Interactive Web UI (/practice)"
+        ]
+    }
+
+
+@app.get("/practice", response_class=HTMLResponse, summary="Human vs AI Practice Mode Web UI", tags=["Human vs AI Practice Mode"])
+@app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
+def practice_ui():
+    """
+    Serves the interactive Human vs AI negotiation practice chat user interface.
+    """
+    template_path = os.path.join(os.path.dirname(__file__), "templates", "practice.html")
+    if os.path.exists(template_path):
+        with open(template_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    return HTMLResponse("<h1>Practice UI template not found</h1>", status_code=404)
+
+
+@app.get("/health")
+def health():
+    if dataset is None:
+        dataset_loaded = False
+        property_count = 0
+    elif hasattr(dataset, "empty"):
+        dataset_loaded = not dataset.empty
+        property_count = len(dataset)
+    else:
+        dataset_loaded = len(dataset) > 0
+        property_count = len(dataset)
+
+    return {
+        "status": "running",
+        "dataset_loaded": dataset_loaded,
+        "property_count": property_count,
+        "active_practice_sessions": len(practice_store.list())
+    }
 
 
 # =====================================================
@@ -98,7 +176,7 @@ class NegotiationRequest(BaseModel):
 
 class PracticeNegotiationRequest(BaseModel):
     scenario: int = Field(1, description="Scenario ID (1: Land / Plot, 2: Apartment / Flat, 3: Villa / House)", examples=[2])
-    property_index: Optional[int] = Field(0, description="Property index from dataset (0 to total properties - 1)", examples=[0])
+    property_index: Optional[int] = Field(None, description="Property index from dataset (0 to total properties - 1, or None for auto-selection)", examples=[0])
     human_role: str = Field("buyer", description="Role of the human participant: 'buyer' or 'seller'", examples=["buyer"])
     ai_personality: str = Field("collaborative", description="AI personality: 'aggressive', 'collaborative', or 'risk_averse'", examples=["collaborative"])
     max_rounds: int = Field(10, description="Maximum number of negotiation rounds", examples=[10])
@@ -117,21 +195,24 @@ class PracticeNegotiationRequest(BaseModel):
 
 
 class PracticeNegotiationStartResponse(BaseModel):
-    negotiation_id: str = Field(..., description="Unique negotiation session ID", examples=["a7f3b891"])
+    negotiation_id: str = Field(..., description="Unique negotiation session ID", examples=["abc123"])
     mode: str = Field("human_vs_ai", description="Mode identifier", examples=["human_vs_ai"])
     human_role: str = Field(..., description="Human role", examples=["buyer"])
     ai_role: str = Field(..., description="AI agent role", examples=["seller"])
+    personality: str = Field("collaborative", description="AI personality", examples=["collaborative"])
+    ai_personality: Optional[str] = Field(None, description="AI personality alias", examples=["collaborative"])
     status: str = Field("active", description="Negotiation status", examples=["active"])
     property: Dict[str, Any] = Field(..., description="Selected property details")
-    ai_message: str = Field(..., description="Initial greeting from AI agent", examples=["Hello! I am ready to negotiate."])
+    ai_message: str = Field(..., description="Initial greeting from AI agent", examples=["Hello! I am the seller. The property is available. What would you like to offer?"])
 
     model_config = {
         "json_schema_extra": {
             "example": {
-                "negotiation_id": "a7f3b891",
+                "negotiation_id": "abc123",
                 "mode": "human_vs_ai",
                 "human_role": "buyer",
                 "ai_role": "seller",
+                "personality": "collaborative",
                 "status": "active",
                 "property": {
                     "Name": "Casagrand ECR 14",
@@ -139,54 +220,58 @@ class PracticeNegotiationStartResponse(BaseModel):
                     "Location": "ECR, Chennai",
                     "Total_Area": "1200 sq.ft"
                 },
-                "ai_message": "Hello and welcome! I am the seller of this property listed at ₹65.50 Lakhs. What is your opening offer?"
+                "ai_message": "Hello! I am the seller. The property is available. What would you like to offer?"
             }
         }
     }
 
 
 class HumanMessageRequest(BaseModel):
-    message: str = Field(..., description="Natural language message or negotiation statement", examples=["I offer ₹58.00 Lakhs for this property."])
-    offer: Optional[float] = Field(None, description="Optional explicit offer in INR. If omitted, parsed automatically from message.", examples=[5800000])
+    message: str = Field(
+        ...,
+        description="Natural language message or negotiation statement",
+        examples=["I will give 25 lakhs for this property"]
+    )
 
     model_config = {
         "json_schema_extra": {
             "example": {
-                "message": "I offer 5800000 for this property",
-                "offer": 5800000
+                "message": "I will give 25 lakhs for this property"
             }
         }
     }
 
 
 class AIResponseDetail(BaseModel):
-    decision: str = Field(..., description="Decision: 'ACCEPT', 'REJECT', or 'COUNTER'", examples=["COUNTER"])
-    counter_offer: Optional[float] = Field(None, description="Counter-offer amount in INR (if decision is COUNTER or ACCEPT)", examples=[6200000])
-    message: str = Field(..., description="Natural language AI response", examples=["I appreciate your offer of ₹58.00 Lakhs. I can come down to ₹62.00 Lakhs."])
-    reason: Optional[str] = Field(None, description="Short explanation of AI reasoning", examples=["Seller made a 45% concession step towards buyer."])
+    decision: str = Field(..., description="Decision: 'ACCEPT', 'REJECT', 'COUNTER', or 'RESPOND'", examples=["COUNTER"])
+    counter_offer: Optional[float] = Field(None, description="Counter-offer amount in INR (if decision is COUNTER or ACCEPT)", examples=[6000000])
+    message: str = Field(..., description="Natural language AI response", examples=["Thank you for your offer of ₹25 lakhs. Based on the property's value, I can offer ₹35 lakhs."])
+    reason: Optional[str] = Field(None, description="Short explanation of AI reasoning", examples=["The human offer is below the target range."])
 
 
 class PracticeMessageResponse(BaseModel):
-    negotiation_id: str = Field(..., examples=["a7f3b891"])
+    negotiation_id: str = Field(..., examples=["abc123"])
     round: int = Field(..., description="Current round number", examples=[1])
-    human_message: str = Field(..., examples=["I offer 5800000"])
-    human_offer: Optional[float] = Field(None, examples=[5800000])
-    ai_response: AIResponseDetail
+    human_message: str = Field(..., examples=["I will give 25 lakhs for this property"])
+    detected_offer: Optional[float] = Field(None, description="Automatically detected offer in INR", examples=[2500000])
+    decision: str = Field(..., description="Decision: 'ACCEPT', 'REJECT', 'COUNTER', or 'RESPOND'", examples=["COUNTER"])
+    counter_offer: Optional[float] = Field(None, description="Counter offer amount in INR", examples=[3500000])
+    ai_message: str = Field(..., description="Natural language AI response message", examples=["Thank you for your offer. Based on the property's value, I counter with ₹35 lakhs."])
+    reason: Optional[str] = Field(None, description="AI reasoning summary", examples=["Seller made a concession step."])
+    human_offer: Optional[float] = Field(None, description="Human offer in INR (detected from message)", examples=[2500000])
+    ai_response: AIResponseDetail = Field(..., description="Detailed AI response object")
     status: str = Field(..., description="Current negotiation status ('active', 'accepted', 'rejected', 'completed')", examples=["active"])
 
     model_config = {
         "json_schema_extra": {
             "example": {
-                "negotiation_id": "a7f3b891",
+                "negotiation_id": "abc123",
                 "round": 1,
-                "human_message": "I offer 5800000",
-                "human_offer": 5800000,
-                "ai_response": {
-                    "decision": "COUNTER",
-                    "counter_offer": 6200000,
-                    "message": "Thank you for your offer of ₹58.00 Lakhs. In the spirit of reaching an agreement, I can counter at ₹62.00 Lakhs.",
-                    "reason": "Seller made a 45% concession step towards buyer."
-                },
+                "human_message": "I will give 25 lakhs for this property",
+                "detected_offer": 2500000,
+                "decision": "COUNTER",
+                "counter_offer": 3500000,
+                "ai_message": "Thank you for your offer. Based on the property's value, I counter with ₹35 lakhs.",
                 "status": "active"
             }
         }
@@ -223,53 +308,17 @@ class NegotiationHistoryResponse(BaseModel):
 
 
 # =====================================================
-# ROOT & HEALTH ENDPOINTS
-# =====================================================
-
-@app.get("/")
-def home():
-    return {
-        "message": "Real Estate Negotiation Platform API is running",
-        "docs": "/docs",
-        "features": [
-            "AI vs AI Multi-Agent Simulation (/negotiations)",
-            "Human vs AI Interactive Practice Mode (/negotiations/practice)"
-        ]
-    }
-
-
-@app.get("/health")
-def health():
-    if dataset is None:
-        dataset_loaded = False
-        property_count = 0
-    elif hasattr(dataset, "empty"):
-        dataset_loaded = not dataset.empty
-        property_count = len(dataset)
-    else:
-        dataset_loaded = len(dataset) > 0
-        property_count = len(dataset)
-
-    return {
-        "status": "running",
-        "dataset_loaded": dataset_loaded,
-        "property_count": property_count,
-        "active_practice_sessions": len(practice_store.list())
-    }
-
-
-# =====================================================
 # SCENARIOS & PERSONALITIES ENDPOINTS
 # =====================================================
 
-@app.get("/scenarios")
+@app.get("/scenarios", tags=["Properties & Scenarios"], summary="List Available Property Scenarios")
 def get_scenarios():
     return {
         "scenarios": SCENARIOS
     }
 
 
-@app.get("/personalities")
+@app.get("/personalities", tags=["Properties & Scenarios"], summary="List Supported AI Personalities")
 def get_personalities():
     return {
         "personalities": PERSONALITIES
@@ -280,7 +329,7 @@ def get_personalities():
 # PROPERTIES ENDPOINT
 # =====================================================
 
-@app.get("/properties")
+@app.get("/properties", tags=["Properties & Scenarios"], summary="Get Property Catalog from Dataset")
 def get_properties(
     scenario: Optional[int] = None,
     start: int = 0,
@@ -333,7 +382,8 @@ def get_properties(
 @app.post(
     "/negotiations/practice",
     response_model=PracticeNegotiationStartResponse,
-    summary="Start a new Human vs AI Practice Negotiation"
+    summary="Start a new Human vs AI Practice Negotiation",
+    tags=["Human vs AI Practice Mode"]
 )
 def start_practice_negotiation(request: PracticeNegotiationRequest):
     """
@@ -375,17 +425,25 @@ def start_practice_negotiation(request: PracticeNegotiationRequest):
     if dataset is None or (hasattr(dataset, "empty") and dataset.empty):
         raise HTTPException(status_code=500, detail="Dataset is not loaded.")
 
-    prop_index = request.property_index or 0
-    if prop_index < 0 or prop_index >= len(dataset):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid property_index {prop_index}. Dataset contains {len(dataset)} properties (0 to {len(dataset)-1})."
-        )
-
-    if hasattr(dataset, "iloc"):
-        property_data = dataset.iloc[prop_index].to_dict()
+    if request.property_index is not None and request.property_index >= 0:
+        prop_index = request.property_index
+        if prop_index < 0 or prop_index >= len(dataset):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid property_index {prop_index}. Dataset contains {len(dataset)} properties (0 to {len(dataset)-1})."
+            )
+        if hasattr(dataset, "iloc"):
+            property_data = dataset.iloc[prop_index].to_dict()
+        else:
+            property_data = dataset[prop_index]
     else:
-        property_data = dataset[prop_index]
+        # Automatically select property matching scenario from dataset_real.csv
+        from scenarios import SCENARIOS as SCENARIO_DEFS
+        from dataset_manager import select_property
+        scenario_info = SCENARIO_DEFS.get(request.scenario, {"name": "Apartment / Flat", "keywords": ["flat", "apartment", "bhk"]})
+        selected_row = select_property(dataset, scenario_info)
+        property_data = selected_row.to_dict() if hasattr(selected_row, "to_dict") else dict(selected_row)
+        prop_index = getattr(selected_row, "name", 0)
 
     reference_price = extract_price(property_data)
     if reference_price is None or reference_price <= 0:
@@ -405,6 +463,10 @@ def start_practice_negotiation(request: PracticeNegotiationRequest):
 
     # 6. Generate Session ID and Create Session
     session_id = uuid.uuid4().hex[:8]
+    print("[BACKEND] Practice endpoint called")
+    print("[PRACTICE_STORE] Creating negotiation")
+    print("[BACKEND] Negotiation ID created:", session_id)
+
     session = PracticeNegotiationSession(
         negotiation_id=session_id,
         mode="human_vs_ai",
@@ -448,6 +510,8 @@ def start_practice_negotiation(request: PracticeNegotiationRequest):
         mode=session.mode,
         human_role=session.human_role,
         ai_role=session.ai_role,
+        personality=session.ai_personality,
+        ai_personality=session.ai_personality,
         status=session.status,
         property=session.property,
         ai_message=ai_greeting
@@ -457,7 +521,8 @@ def start_practice_negotiation(request: PracticeNegotiationRequest):
 @app.post(
     "/negotiations/{negotiation_id}/message",
     response_model=PracticeMessageResponse,
-    summary="Send Human Message or Offer in Practice Mode"
+    summary="Send Human Message or Offer in Practice Mode",
+    tags=["Human vs AI Practice Mode"]
 )
 def send_practice_message(
     negotiation_id: str,
@@ -466,11 +531,14 @@ def send_practice_message(
     """
     Submits a message and/or offer from the human participant to the AI counterparty.
     - AI evaluates the offer against property limits, personality rules, and previous history.
-    - AI returns an immediate intelligent response with decision ('ACCEPT', 'REJECT', 'COUNTER'), counter-offer, and reasoning.
+    - AI returns an immediate intelligent response with decision ('ACCEPT', 'REJECT', 'COUNTER', 'RESPOND'), counter-offer, and reasoning.
     """
     # 1. Fetch & Validate Session
+    print("[API] Message endpoint received")
+    print(f"[PRACTICE_STORE] Loading negotiation: {negotiation_id}")
     session = practice_store.get(negotiation_id)
     if not session:
+        print(f"[DEBUG] ERROR: Negotiation session '{negotiation_id}' not found in practice_store.")
         raise HTTPException(
             status_code=404,
             detail=f"Negotiation session '{negotiation_id}' not found."
@@ -478,33 +546,41 @@ def send_practice_message(
 
     # 2. Check Active Status
     if session.status != "active":
+        print(f"[DEBUG] ERROR: Negotiation '{negotiation_id}' is not active (Status: {session.status}).")
         raise HTTPException(
             status_code=400,
             detail=f"Negotiation '{negotiation_id}' is not active (Current status: '{session.status}')."
         )
 
-    # 3. Resolve Human Offer
-    human_offer = request.offer if request.offer is not None else extract_offer_from_text(request.message)
+    print("[BACKEND] negotiation_id:", negotiation_id)
+    print("[BACKEND] Human message:", request.message)
+    print(f"[BACKEND] AI personality: {session.ai_personality}")
+    print("[PRACTICE_AGENT] Processing human message")
+
+    # 3. Resolve Human Offer via Automatic Analysis
+    detected_offer = extract_offer_from_message(request.message)
+    print("[BACKEND] Detected offer:", detected_offer)
+    print(f"[PRACTICE_AGENT] Detected offer: {detected_offer}")
 
     # 4. Record Human Turn in History
     human_turn_entry = {
         "round": session.round,
         "sender": f"human_{session.human_role}",
         "message": request.message,
-        "offer": human_offer,
+        "offer": detected_offer,
         "timestamp": time.time()
     }
     session.history.append(human_turn_entry)
 
-    if human_offer is not None:
-        session.last_human_offer = human_offer
-        session.current_offer = human_offer
+    if detected_offer is not None:
+        session.last_human_offer = detected_offer
+        session.current_offer = detected_offer
 
     # 5. AI Agent Evaluates Context & Generates Response
     ai_result = practice_agent.evaluate_and_respond(
         session=session,
         human_message=request.message,
-        explicit_offer=human_offer
+        explicit_offer=detected_offer
     )
 
     decision = ai_result["decision"]
@@ -512,10 +588,14 @@ def send_practice_message(
     ai_message = ai_result["message"]
     reason = ai_result["reason"]
 
+    print("[BACKEND] AI response:", ai_message)
+    if counter_offer is not None:
+        print(f"[BACKEND] Counter offer: {counter_offer}")
+
     # 6. Update Session State
     if decision == "ACCEPT":
         session.status = "accepted"
-        session.agreed_price = counter_offer or human_offer
+        session.agreed_price = counter_offer or detected_offer
         session.current_offer = session.agreed_price
     elif decision == "REJECT":
         session.status = "rejected"
@@ -547,12 +627,19 @@ def send_practice_message(
         session.round += 1
 
     practice_store.save(session)
+    print("[BACKEND] Saving negotiation history")
+    print("[PRACTICE_STORE] Saving updated negotiation state")
 
     return PracticeMessageResponse(
         negotiation_id=session.negotiation_id,
         round=current_round,
         human_message=request.message,
-        human_offer=human_offer,
+        detected_offer=detected_offer,
+        decision=decision,
+        counter_offer=counter_offer,
+        ai_message=ai_message,
+        reason=reason,
+        human_offer=detected_offer,
         ai_response=AIResponseDetail(
             decision=decision,
             counter_offer=counter_offer,
@@ -566,7 +653,8 @@ def send_practice_message(
 @app.get(
     "/negotiations/{negotiation_id}",
     response_model=NegotiationStateResponse,
-    summary="Get Negotiation State"
+    summary="Get Negotiation State",
+    tags=["Human vs AI Practice Mode"]
 )
 def get_negotiation_state(negotiation_id: str):
     """
@@ -605,7 +693,8 @@ def get_negotiation_state(negotiation_id: str):
 @app.get(
     "/negotiations/{negotiation_id}/history",
     response_model=NegotiationHistoryResponse,
-    summary="Get Negotiation History"
+    summary="Get Negotiation History",
+    tags=["Human vs AI Practice Mode"]
 )
 def get_negotiation_history(negotiation_id: str):
     """
@@ -628,7 +717,8 @@ def get_negotiation_history(negotiation_id: str):
 
 @app.post(
     "/negotiations/{negotiation_id}/cancel",
-    summary="Cancel / End Practice Negotiation"
+    summary="Cancel / End Practice Negotiation",
+    tags=["Human vs AI Practice Mode"]
 )
 def cancel_negotiation(negotiation_id: str):
     """
@@ -668,7 +758,11 @@ def cancel_negotiation(negotiation_id: str):
 # AI-VS-AI SIMULATION ENDPOINT (EXISTING)
 # =====================================================
 
-@app.post("/negotiations")
+@app.post(
+    "/negotiations",
+    summary="Start AI vs AI Multi-Agent Simulation",
+    tags=["AI vs AI Simulation"]
+)
 def start_negotiation(
     request: NegotiationRequest
 ):

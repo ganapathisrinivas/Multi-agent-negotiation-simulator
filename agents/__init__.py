@@ -6,7 +6,12 @@ from .practice_store import (
     BaseNegotiationStore,
     InMemoryNegotiationStore
 )
-from .practice_agent import PracticeAIAgent, extract_offer_from_text, format_inr
+from .practice_agent import (
+    PracticeAIAgent,
+    extract_offer_from_message,
+    extract_offer_from_text,
+    format_inr
+)
 
 __all__ = [
     "CounterofferEvaluator",
@@ -16,6 +21,7 @@ __all__ = [
     "BaseNegotiationStore",
     "InMemoryNegotiationStore",
     "PracticeAIAgent",
+    "extract_offer_from_message",
     "extract_offer_from_text",
     "format_inr"
 ]
