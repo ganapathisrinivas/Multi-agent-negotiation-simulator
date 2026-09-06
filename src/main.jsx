@@ -1,132 +1,748 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import {
-  Activity, Bot, Building2, Clock3, Gauge, History, Home, Pause, Play,
-  RotateCcw, Settings2, ShieldCheck, Sparkles, Target, TrendingDown,
-  TrendingUp, Users, CheckCircle2, XCircle, ChevronRight
-} from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import "./styles.css";
 
-const initialRounds = [
-  { round: 1, seller: 85, buyer: 75 },
-  { round: 2, seller: 84, buyer: 77 },
-  { round: 3, seller: 82, buyer: 78 },
-  { round: 4, seller: 82, buyer: 79 },
-];
+const API = "/api";
 
-const scriptedRounds = [
-  { agent: "seller", title: "Initial Offer", amount: 85, text: "The property is in a high-demand area and has recently renovated interiors.", rationale: "Start near the asking price and test the buyer's willingness to negotiate." },
-  { agent: "buyer", title: "Counter Offer", amount: 75, text: "Comparable properties suggest a lower market range, so the buyer is starting conservatively.", rationale: "Anchor below the asking price while leaving enough room for future concessions." },
-  { agent: "seller", title: "Counter Offer", amount: 82, text: "The seller is willing to make a limited concession because of the buyer's seriousness.", rationale: "Protect the seller's target while signaling that a deal is possible." },
-  { agent: "buyer", title: "Counter Offer", amount: 79, text: "The buyer increases the offer while keeping within the approved budget.", rationale: "Move closer to the seller without revealing the maximum approved budget." },
-  { agent: "seller", title: "Counter Offer", amount: 81, text: "The seller narrows the gap after reviewing the buyer's latest position.", rationale: "A smaller concession is justified because the gap is closing." },
-  { agent: "buyer", title: "Counter Offer", amount: 80, text: "The buyer makes a final balanced move based on market value and budget.", rationale: "Reach the buyer's preferred ceiling to maximize the probability of agreement." },
-  { agent: "seller", title: "Final Offer", amount: 80, text: "The seller accepts the buyer's position and is ready to close at ₹80L.", rationale: "The price is close enough to the seller's reservation point to justify closing." },
-];
-
-const agentData = {
-  seller:{name:"Seller Agent", icon:"🏠", tone:"orange", stance:"Firm", score:76, target:"₹82L", role:"Property Owner"},
-  buyer:{name:"Buyer Agent", icon:"🧑", tone:"blue", stance:"Flexible", score:62, target:"₹80L", role:"Buyer Representative"},
-  broker:{name:"Broker Agent", icon:"🤝", tone:"purple", stance:"Neutral", score:50, target:"₹80L", role:"Mediator"},
-  evaluator:{name:"Evaluator", icon:"📊", tone:"green", stance:"Analytical", score:88, target:"₹80L", role:"Outcome Judge"},
+const fallbackScenarios = {
+  1: "Land / Plot",
+  2: "Apartment / Flat",
+  3: "Villa / Independent House",
 };
 
-function money(v){ return `₹${v},00,000`; }
+const fallbackPersonalities = {
+  1: "Aggressive",
+  2: "Collaborative",
+  3: "Risk-Averse",
+};
 
-function AgentCard({type, active, onClick}) {
-  const a = agentData[type];
-  return <button className={`agent-card ${active ? "active": ""}`} onClick={onClick}>
-    <span className={`avatar ${a.tone}`}>{a.icon}</span>
-    <span className="agent-copy"><strong>{a.name}</strong><small>{a.role}</small><span className="mini-bar"><i style={{width:`${a.score}%`}} /></span></span>
-    <span className="stance">{a.stance}</span>
-  </button>;
-}
+const personalityMeta = {
+  aggressive: { label: "Aggressive", icon: "⚡" },
+  collaborative: { label: "Collaborative", icon: "🤝" },
+  risk_averse: { label: "Risk-Averse", icon: "🛡️" },
+};
 
-function TranscriptItem({item}) {
-  const a = agentData[item.agent];
-  return <div className={`message ${item.agent}`}>
-    <div className="message-head"><span className={`avatar tiny ${a.tone}`}>{a.icon}</span><strong>{a.name}</strong><span className="time">{item.time}</span></div>
-    <div className="message-body">
-      <div className="message-top"><span className="pill">{item.title}</span><strong>{money(item.amount)}</strong></div>
-      <p>{item.text}</p>
-      <div className="message-rationale"><Sparkles size={12}/><span><b>Decision factor:</b> {item.rationale}</span></div>
-    </div>
-  </div>;
-}
+const money = (value) => {
+  if (value === null || value === undefined || value === "") return "—";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value);
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(number);
+};
 
-function App(){
-  const [activeAgent,setActiveAgent] = useState("seller");
-  const [running,setRunning] = useState(false);
-  const [round,setRound] = useState(4);
-  const [tab,setTab] = useState("arena");
-  const [speed,setSpeed] = useState(2);
-  const [finished,setFinished] = useState(false);
+const prettyKey = (key) =>
+  String(key)
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 
-  const transcript = useMemo(() => scriptedRounds.slice(0, Math.min(round, scriptedRounds.length)).map((m,i)=>({...m,time:`11:${String(2+i).padStart(2,"0")}`})), [round]);
-  const offers = useMemo(() => {
-    const result = [...initialRounds];
-    if(round >= 5) result.push({round:5,seller:81,buyer:79});
-    if(round >= 6) result.push({round:6,seller:81,buyer:80});
-    if(round >= 7) result.push({round:7,seller:80,buyer:80});
-    return result.filter(x => x.round <= Math.max(4, round));
-  }, [round]);
-  const current = offers[offers.length - 1];
-  const gap = Math.max(0,current.seller-current.buyer);
-  const status = finished ? "Agreement reached" : gap <= 1 ? "Agreement likely" : "Negotiation active";
-  const progress = Math.min(100, Math.round((round/7)*100));
+const getValue = (obj, names) => {
+  if (!obj) return null;
+  const key = Object.keys(obj).find((k) =>
+    names.some((name) => k.toLowerCase() === name.toLowerCase())
+  );
+  return key ? obj[key] : null;
+};
 
-  const nextRound=()=>{
-    if(round < 7) setRound(r=>r+1);
-    else { setRound(7); setFinished(true); setRunning(false); }
-  };
-  const reset=()=>{setRound(1);setFinished(false);setRunning(false);setActiveAgent("seller")};
+function App() {
+  const [scenarios, setScenarios] = useState(fallbackScenarios);
+  const [personalities, setPersonalities] = useState(fallbackPersonalities);
+  const [properties, setProperties] = useState([]);
 
-  return <div className="app">
-    <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><Home size={19}/></div><div><b>RealNegotiate</b><small>Multi-Agent Simulator</small></div></div>
-      <div className="side-section"><span className="side-label">WORKSPACE</span>
-        {[["dashboard","Dashboard",Gauge],["properties","Properties",Building2],["agents","Agents",Bot],["arena","Negotiation Arena",Activity],["history","History",History]].map(([id,label,Icon])=><button key={id} className={tab===id?"nav active":"nav"} onClick={()=>setTab(id)}><Icon size={18}/>{label}</button>)}
-      </div>
-      <div className="side-section"><span className="side-label">LIVE AGENTS</span>{Object.keys(agentData).map(k=><AgentCard key={k} type={k} active={activeAgent===k} onClick={()=>setActiveAgent(k)}/>)}</div>
-      <div className="sidebar-bottom"><button className="nav"><Settings2 size={18}/>Simulation Settings</button><div className="user-chip"><div className="user-avatar">S</div><div><b>Simulator</b><small>Admin workspace</small></div></div></div>
-    </aside>
+  const [scenario, setScenario] = useState(2);
+  const [propertyIndex, setPropertyIndex] = useState(0);
+  const [humanRole, setHumanRole] = useState("buyer");
+  const [aiPersonality, setAiPersonality] = useState("collaborative");
+  const [maxRounds, setMaxRounds] = useState(10);
 
-    <main className="main">
-      <header className="topbar"><div><div className="eyebrow">SESSION / RN-2048</div><h1>Negotiation Arena</h1></div><div className="top-actions"><span className="live"><i/> LIVE</span><button className="icon-btn"><Clock3 size={17}/></button><button className="avatar user">S</button></div></header>
+  const [session, setSession] = useState(null);
+  const [message, setMessage] = useState("");
+  const [offer, setOffer] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [propertiesLoading, setPropertiesLoading] = useState(false);
+  const [error, setError] = useState("");
 
-      {tab!=="arena" ? <div className="placeholder"><Sparkles size={34}/><h2>{tab[0].toUpperCase()+tab.slice(1)}</h2><p>The workspace is ready. Open Negotiation Arena to run the multi-agent simulation.</p><button onClick={()=>setTab("arena")}>Open Arena <ChevronRight size={15}/></button></div> :
-      <div className="content">
-        <section className="arena-col">
-          <div className="arena-header"><div><span className="section-kicker">PROPERTY NEGOTIATION</span><h2>3 BHK Apartment · Hyderabad</h2></div><div className="round"><span>ROUND</span><b>{round}</b><small>/ 7</small></div></div>
-          <div className="progress-wrap"><div className="progress-label"><span>Negotiation progress</span><b>{progress}%</b></div><div className="progress-track"><i style={{width:`${progress}%`}}/></div></div>
-          <div className="status-strip"><div><span>ASKING PRICE</span><b>₹85L</b></div><div><span>CURRENT SELLER</span><b>₹{current.seller}L</b></div><div><span>CURRENT BUYER</span><b>₹{current.buyer}L</b></div><div><span>PRICE GAP</span><b className={gap<=1?"good":""}>₹{gap}L</b></div></div>
+  const selectedProperty = useMemo(
+    () => properties.find((p) => p.index === Number(propertyIndex)),
+    [properties, propertyIndex]
+  );
 
-          <div className="transcript">
-            {transcript.map((m,i)=><TranscriptItem item={m} key={i}/>)}
-            {!finished && <div className="typing"><span className="avatar tiny purple">🤝</span><span>Broker Agent is evaluating the latest offer</span><i/><i/><i/></div>}
+  const propertyData = selectedProperty?.property || session?.property || {};
+
+  const aiRole = session?.ai_role || (humanRole === "buyer" ? "seller" : "buyer");
+  const aiPersonalityLabel =
+    personalityMeta[session?.ai_personality || aiPersonality]?.label ||
+    session?.ai_personality ||
+    aiPersonality;
+
+  useEffect(() => {
+    loadMetadata();
+  }, []);
+
+  useEffect(() => {
+    loadProperties(scenario);
+  }, [scenario]);
+
+  async function loadMetadata() {
+    try {
+      const [scenarioRes, personalityRes] = await Promise.all([
+        fetch(`${API}/scenarios`),
+        fetch(`${API}/personalities`),
+      ]);
+
+      if (scenarioRes.ok) {
+        const data = await scenarioRes.json();
+        setScenarios(data.scenarios || fallbackScenarios);
+      }
+
+      if (personalityRes.ok) {
+        const data = await personalityRes.json();
+        setPersonalities(data.personalities || fallbackPersonalities);
+      }
+    } catch {
+      // Fallback values keep the UI usable if the backend is not running yet.
+    }
+  }
+
+  async function loadProperties(selectedScenario) {
+    setPropertiesLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${API}/properties?scenario=${selectedScenario}&start=0&limit=100`
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Unable to load properties.");
+      }
+
+      setProperties(data.properties || []);
+      setPropertyIndex(0);
+    } catch (err) {
+      setProperties([]);
+      setError(
+        `${err.message} Start the FastAPI backend on http://127.0.0.1:8000 if it is not running.`
+      );
+    } finally {
+      setPropertiesLoading(false);
+    }
+  }
+
+  async function startNegotiation() {
+    setLoading(true);
+    setError("");
+    setSession(null);
+    setMessage("");
+    setOffer("");
+
+    try {
+      const response = await fetch(`${API}/negotiations/practice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scenario: Number(scenario),
+          property_index: Number(propertyIndex),
+          human_role: humanRole,
+          ai_personality: aiPersonality,
+          max_rounds: Number(maxRounds),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Could not start negotiation.");
+      }
+
+      setSession({
+        ...data,
+        history: [
+          {
+            round: 0,
+            sender: `ai_${data.ai_role}`,
+            message: data.ai_message,
+            decision: "INITIAL_GREETING",
+            offer: data.ai_role === "seller"
+              ? getValue(data.property, ["Price", "price", "Selling Price", "selling_price"])
+              : null,
+          },
+        ],
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function sendMessage(event) {
+    event?.preventDefault();
+    if (!session || session.status !== "active" || !message.trim()) return;
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${API}/negotiations/${session.negotiation_id}/message`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: message.trim(),
+            offer: offer === "" ? null : Number(offer),
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Unable to send message.");
+      }
+
+      const humanEntry = {
+        round: data.round,
+        sender: `human_${session.human_role}`,
+        message: data.human_message,
+        offer: data.human_offer,
+      };
+
+      const aiEntry = {
+        round: data.round,
+        sender: `ai_${session.ai_role}`,
+        message: data.ai_response.message,
+        offer: data.ai_response.counter_offer,
+        decision: data.ai_response.decision,
+        reason: data.ai_response.reason,
+      };
+
+      setSession((prev) => ({
+        ...prev,
+        status: data.status,
+        history: [...(prev.history || []), humanEntry, aiEntry],
+        latestDecision: data.ai_response,
+        round: data.round,
+      }));
+
+      setMessage("");
+      setOffer("");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function cancelNegotiation() {
+    if (!session) return;
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${API}/negotiations/${session.negotiation_id}/cancel`,
+        { method: "POST" }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Unable to cancel negotiation.");
+      }
+
+      setSession((prev) => ({
+        ...prev,
+        status: data.status,
+        history: [
+          ...(prev.history || []),
+          {
+            round: prev.round,
+            sender: "system",
+            message: data.message,
+          },
+        ],
+      }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshState() {
+    if (!session) return;
+
+    try {
+      const response = await fetch(
+        `${API}/negotiations/${session.negotiation_id}`
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Unable to refresh state.");
+      setSession((prev) => ({ ...prev, ...data }));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const status = session?.status || "ready";
+  const latestDecision = session?.latestDecision;
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div>
+          <div className="eyebrow">AI REAL ESTATE SIMULATION</div>
+          <h1>Negotiation Arena</h1>
+          <p>Practice real-world property negotiation with a multi-agent AI.</p>
+        </div>
+        <div className={`status-pill ${status}`}>
+          <span className="status-dot" />
+          {status.replace("_", " ").toUpperCase()}
+        </div>
+      </header>
+
+      {error && (
+        <div className="error-banner">
+          <strong>Backend message:</strong> {error}
+        </div>
+      )}
+
+      <main className="layout">
+        <aside className="sidebar">
+          <section className="panel setup-panel">
+            <div className="panel-title">
+              <span>01</span>
+              Negotiation setup
+            </div>
+
+            <label>
+              Scenario
+              <select
+                value={scenario}
+                onChange={(e) => {
+                  setScenario(Number(e.target.value));
+                  setSession(null);
+                }}
+              >
+                {Object.entries(scenarios).map(([key, value]) => (
+                  <option key={key} value={key}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              Property
+              <select
+                value={propertyIndex}
+                disabled={propertiesLoading || properties.length === 0}
+                onChange={(e) => setPropertyIndex(Number(e.target.value))}
+              >
+                {properties.map((item) => {
+                  const title =
+                    getValue(item.property, [
+                      "Property Title",
+                      "Name",
+                      "Property Name",
+                    ]) || `Property ${item.index + 1}`;
+                  return (
+                    <option key={item.index} value={item.index}>
+                      {item.index + 1}. {title}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+
+            <label>
+              Your role
+              <div className="segmented">
+                <button
+                  className={humanRole === "buyer" ? "selected" : ""}
+                  onClick={() => setHumanRole("buyer")}
+                >
+                  Buyer
+                </button>
+                <button
+                  className={humanRole === "seller" ? "selected" : ""}
+                  onClick={() => setHumanRole("seller")}
+                >
+                  Seller
+                </button>
+              </div>
+            </label>
+
+            <label>
+              AI personality
+              <select
+                value={aiPersonality}
+                onChange={(e) => setAiPersonality(e.target.value)}
+              >
+                {Object.entries(personalities).map(([key, value]) => (
+                  <option key={key} value={String(value).toLowerCase().replace(/-/g, "_").replace(/ /g, "_")}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              Maximum rounds
+              <input
+                type="number"
+                min="1"
+                max="50"
+                value={maxRounds}
+                onChange={(e) => setMaxRounds(e.target.value)}
+              />
+            </label>
+
+            <button
+              className="primary-btn"
+              onClick={startNegotiation}
+              disabled={loading || properties.length === 0}
+            >
+              {loading && !session ? "Starting..." : "Start negotiation →"}
+            </button>
+
+            {session && (
+              <button
+                className="secondary-btn"
+                onClick={refreshState}
+                disabled={loading}
+              >
+                Refresh state
+              </button>
+            )}
+          </section>
+
+          <section className="panel property-panel">
+            <div className="panel-title">
+              <span>02</span>
+              Property snapshot
+            </div>
+
+            <h2>
+              {getValue(propertyData, [
+                "Property Title",
+                "Name",
+                "Property Name",
+              ]) || "Selected property"}
+            </h2>
+
+            <div className="property-price">
+              {money(
+                getValue(propertyData, [
+                  "Price",
+                  "price",
+                  "Selling Price",
+                  "selling_price",
+                  "Property Price",
+                ])
+              )}
+            </div>
+
+            <div className="location">
+              📍{" "}
+              {getValue(propertyData, [
+                "Location",
+                "location",
+                "Address",
+                "address",
+              ]) || "Location not provided"}
+            </div>
+
+            <div className="property-grid">
+              {Object.entries(propertyData)
+                .filter(([key]) => !["Price", "price"].includes(key))
+                .slice(0, 8)
+                .map(([key, value]) => (
+                  <div className="property-field" key={key}>
+                    <span>{prettyKey(key)}</span>
+                    <strong>{String(value ?? "—")}</strong>
+                  </div>
+                ))}
+            </div>
+          </section>
+        </aside>
+
+        <section className="arena">
+          <div className="arena-header">
+            <div>
+              <div className="eyebrow">LIVE SESSION</div>
+              <h2>
+                {session
+                  ? `Session #${session.negotiation_id}`
+                  : "Set up your negotiation"}
+              </h2>
+            </div>
+
+            {session && (
+              <div className="round-badge">
+                Round {session.round || 1} / {session.max_rounds}
+              </div>
+            )}
           </div>
 
-          <div className="control-panel">
-            <div className="control-title"><div><b>Simulation Control</b><small>Run the agents round-by-round</small></div><span className={`status-dot ${finished?"complete":""}`}><i/> {status}</span></div>
-            <div className="controls"><button className="primary" onClick={()=>setRunning(!running)} disabled={finished}>{running?<Pause size={17}/>:<Play size={17}/>} {running?"Pause":"Start Simulation"}</button><button onClick={nextRound} disabled={finished}>Next Round</button><button onClick={reset}><RotateCcw size={16}/> Reset</button><label>Speed <select value={speed} onChange={e=>setSpeed(e.target.value)}><option>1</option><option>2</option><option>4</option></select>x</label></div>
+          <div className="agents-row">
+            <AgentCard
+              role={humanRole}
+              name="You"
+              personality="Human"
+              active={Boolean(session)}
+            />
+            <div className="versus">VS</div>
+            <AgentCard
+              role={aiRole}
+              name="AI Negotiator"
+              personality={aiPersonalityLabel}
+              active={Boolean(session)}
+            />
           </div>
 
-          {finished && <div className="agreement-card"><div className="agreement-icon"><CheckCircle2 size={25}/></div><div><span className="section-kicker">NEGOTIATION COMPLETE</span><h2>Agreement Reached</h2><p>Both agents converged on a mutually acceptable price.</p></div><div className="final-price"><span>FINAL PRICE</span><b>₹80,00,000</b></div></div>}
+          <div className="transcript panel">
+            <div className="transcript-head">
+              <div>
+                <h3>Negotiation transcript</h3>
+                <span>
+                  {session
+                    ? "Every offer and AI decision appears here."
+                    : "Start a session to begin the conversation."}
+                </span>
+              </div>
+              {session && (
+                <button
+                  className="cancel-btn"
+                  onClick={cancelNegotiation}
+                  disabled={loading || status !== "active"}
+                >
+                  End session
+                </button>
+              )}
+            </div>
+
+            <div className="messages">
+              {!session ? (
+                <div className="empty-state">
+                  <div className="empty-icon">💬</div>
+                  <h3>Ready when you are</h3>
+                  <p>
+                    Choose a property, role and AI personality, then start the
+                    negotiation.
+                  </p>
+                </div>
+              ) : (
+                session.history?.map((item, index) => (
+                  <MessageBubble
+                    key={`${index}-${item.timestamp || ""}`}
+                    item={item}
+                    humanRole={session.human_role}
+                    aiRole={session.ai_role}
+                  />
+                ))
+              )}
+            </div>
+
+            {session && status === "active" && (
+              <form className="composer" onSubmit={sendMessage}>
+                <div className="offer-input">
+                  <span>₹</span>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Offer amount (optional)"
+                    value={offer}
+                    onChange={(e) => setOffer(e.target.value)}
+                  />
+                </div>
+                <input
+                  className="message-input"
+                  placeholder={
+                    humanRole === "buyer"
+                      ? "Write your offer or negotiation message..."
+                      : "Write your asking price or negotiation message..."
+                  }
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                />
+                <button className="send-btn" disabled={loading || !message.trim()}>
+                  {loading ? "..." : "Send"}
+                </button>
+              </form>
+            )}
+
+            {session && status !== "active" && (
+              <div className={`result-banner ${status}`}>
+                <strong>Negotiation {status}.</strong>
+                {latestDecision?.message
+                  ? " Review the final AI decision above."
+                  : " Start a new session to negotiate again."}
+              </div>
+            )}
+          </div>
         </section>
 
-        <aside className="right-col">
-          <div className="panel property"><div className="property-image"><div className="image-overlay">VERIFIED PROPERTY</div><div className="building">⌂</div></div><div className="panel-pad"><div className="panel-head"><div><span className="section-kicker">PROPERTY</span><h3>Modern 3 BHK Residence</h3></div><ShieldCheck size={19}/></div><div className="property-location">Gachibowli · Hyderabad</div><div className="price-row"><div><span>Asking Price</span><b>₹85,00,000</b></div><div><span>Market Estimate</span><b>₹81,50,000</b></div></div><div className="facts"><span><b>1,850</b> sq.ft</span><span><b>3</b> Beds</span><span><b>2</b> Baths</span></div></div></div>
+        <aside className="rightbar">
+          <section className="panel reasoning-panel">
+            <div className="panel-title">
+              <span>03</span>
+              AI reasoning
+            </div>
 
-          <div className="panel stance-panel"><div className="panel-pad"><div className="panel-head"><div><span className="section-kicker">ACTIVE AGENT</span><h3>{agentData[activeAgent].name}</h3></div><span className={`avatar ${agentData[activeAgent].tone}`}>{agentData[activeAgent].icon}</span></div><div className="stance-line"><span>STANCE</span><b>{agentData[activeAgent].stance}</b></div><div className="stance-track"><span style={{left:`${agentData[activeAgent].score}%`}}/></div><div className="stance-labels"><span>Flexible</span><span>Firm</span></div><div className="factor"><span>Market value</span><b>90%</b><i><em style={{width:"90%"}}/></i></div><div className="factor"><span>Concession room</span><b>40%</b><i><em style={{width:"40%"}}/></i></div><div className="factor"><span>Closing pressure</span><b>30%</b><i><em style={{width:"30%"}}/></i></div><div className="reason"><Sparkles size={15}/><div><b>Decision rationale</b><p>{scriptedRounds[Math.min(round-1, scriptedRounds.length-1)].rationale}</p></div></div></div></div>
+            {latestDecision ? (
+              <>
+                <div className={`decision ${String(latestDecision.decision).toLowerCase()}`}>
+                  {latestDecision.decision}
+                </div>
+                <h3>Decision analysis</h3>
+                <p>
+                  {latestDecision.reason ||
+                    "The AI did not return a reasoning summary for this response."}
+                </p>
 
-          <div className="panel chart-panel"><div className="panel-pad"><div className="panel-head"><div><span className="section-kicker">OFFER MOVEMENT</span><h3>Price convergence</h3></div><TrendingDown size={18}/></div><div className="chart"><ResponsiveContainer width="100%" height={165}><LineChart data={offers}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="round" tickFormatter={v=>`R${v}`}/><YAxis domain={[70,90]} tickFormatter={v=>`₹${v}L`}/><Tooltip formatter={(v)=>[`₹${v}L`]} labelFormatter={v=>`Round ${v}`}/><Line type="monotone" dataKey="seller" strokeWidth={3} dot={{r:3}}/><Line type="monotone" dataKey="buyer" strokeWidth={3} dot={{r:3}}/></LineChart></ResponsiveContainer></div><div className="legend"><span><i className="seller-dot"/>Seller</span><span><i className="buyer-dot"/>Buyer</span></div></div></div>
+                <div className="decision-price">
+                  <span>Counter offer</span>
+                  <strong>
+                    {money(latestDecision.counter_offer)}
+                  </strong>
+                </div>
+              </>
+            ) : (
+              <div className="reasoning-empty">
+                <span>◎</span>
+                <p>
+                  Once the AI responds, its decision, counter-offer and
+                  reasoning will appear here.
+                </p>
+              </div>
+            )}
+          </section>
 
-          <div className="panel stance-history"><div className="panel-pad"><div className="panel-head"><div><span className="section-kicker">STANCE EVOLUTION</span><h3>Seller position</h3></div><TrendingUp size={18}/></div><div className="history-row"><span>R1</span><b>Firm</b><i style={{width:"90%"}}/></div><div className="history-row"><span>R3</span><b>Firm</b><i style={{width:"76%"}}/></div><div className="history-row"><span>R5</span><b>Moderate</b><i style={{width:"61%"}}/></div><div className="history-row"><span>R7</span><b>Flexible</b><i style={{width:"50%"}}/></div></div></div>
+          <section className="panel metrics-panel">
+            <div className="panel-title">
+              <span>04</span>
+              Negotiation metrics
+            </div>
+
+            <Metric
+              label="Reference price"
+              value={money(session?.reference_price || getValue(propertyData, ["Price", "price"]))}
+            />
+            <Metric
+              label="Current offer"
+              value={money(session?.current_offer)}
+            />
+            <Metric
+              label="Last human offer"
+              value={money(session?.last_human_offer)}
+            />
+            <Metric
+              label="Last AI offer"
+              value={money(session?.last_ai_offer)}
+            />
+            <Metric
+              label="Agreed price"
+              value={money(session?.agreed_price)}
+            />
+            <Metric
+              label="Stagnant rounds"
+              value={session?.stagnant_round_count ?? 0}
+            />
+          </section>
+
+          <section className="panel tip-panel">
+            <div className="tip-icon">✦</div>
+            <div>
+              <strong>Negotiation tip</strong>
+              <p>
+                Make a clear numerical offer when possible. The backend can
+                also extract an offer from your natural-language message.
+              </p>
+            </div>
+          </section>
         </aside>
-      </div>}
-    </main>
-  </div>;
+      </main>
+    </div>
+  );
 }
 
-createRoot(document.getElementById("root")).render(<App/>);
+function AgentCard({ role, name, personality, active }) {
+  const meta =
+    personalityMeta[String(personality).toLowerCase().replace(/-/g, "_")] ||
+    { label: personality, icon: "◈" };
+
+  return (
+    <div className={`agent-card ${active ? "active" : ""}`}>
+      <div className={`avatar ${role}`}>
+        {role === "buyer" ? "B" : "S"}
+      </div>
+      <div>
+        <span className="agent-role">{role}</span>
+        <strong>{name}</strong>
+        <small>
+          {meta.icon} {meta.label}
+        </small>
+      </div>
+    </div>
+  );
+}
+
+function MessageBubble({ item, humanRole, aiRole }) {
+  const isHuman = String(item.sender || "").startsWith("human");
+  const isSystem = item.sender === "system";
+
+  if (isSystem) {
+    return (
+      <div className="system-message">
+        <span>•</span> {item.message}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`message-row ${isHuman ? "human" : "ai"}`}>
+      <div className="message-meta">
+        <span>{isHuman ? "You" : `AI ${aiRole}`}</span>
+        <span>Round {item.round}</span>
+      </div>
+      <div className="bubble">
+        <p>{item.message}</p>
+        {item.offer !== null && item.offer !== undefined && (
+          <div className="offer-chip">
+            {isHuman ? "Offer" : "Counter"} · {money(item.offer)}
+          </div>
+        )}
+      </div>
+      {!isHuman && item.decision && (
+        <div className={`inline-decision ${String(item.decision).toLowerCase()}`}>
+          {item.decision}
+        </div>
+      )}
+      {!isHuman && item.reason && (
+        <div className="inline-reason">{item.reason}</div>
+      )}
+    </div>
+  );
+}
+
+function Metric({ label, value }) {
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
