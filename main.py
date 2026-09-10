@@ -2,6 +2,8 @@ import sys
 
 from fastapi import FastAPI
 
+from fastapi.middleware.cors import CORSMiddleware
+
 from dataset_manager import load_dataset
 
 from routers.negotiation_router import router, set_dataset
@@ -36,6 +38,22 @@ app = FastAPI(
         "Simulation Platform with Interactive Human Practice Mode"
     ),
     version="1.3.0"
+)
+
+
+# =====================================================
+# CORS - ALLOW LOCAL REACT FRONTEND
+# =====================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
