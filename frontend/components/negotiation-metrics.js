@@ -138,13 +138,53 @@ function metricHtml(
 
 
 /* =========================================================
+   GET BUYER / SELLER OFFER VALUES
+   Works with both normal state fields and AI-vs-AI state.
+========================================================= */
+
+function getBuyerOffer(data) {
+
+    return (
+        data?.buyer_offer ??
+        data?.last_buyer_offer ??
+        data?.buyer_last_offer ??
+        data?.current_state?.buyer_offer ??
+        data?.current_state?.last_buyer_offer ??
+        data?.current_state?.buyer_last_offer ??
+        data?.last_human_offer ??
+        null
+    );
+
+}
+
+
+function getSellerOffer(data) {
+
+    return (
+        data?.seller_offer ??
+        data?.last_seller_offer ??
+        data?.seller_last_offer ??
+        data?.current_state?.seller_offer ??
+        data?.current_state?.last_seller_offer ??
+        data?.current_state?.seller_last_offer ??
+        data?.last_ai_offer ??
+        null
+    );
+
+}
+
+
+/* =========================================================
    RENDER NEGOTIATION METRICS
 ========================================================= */
 
-function renderMetrics(data) {
+function renderMetrics(
+    data,
+    mode = "human_ai"
+) {
 
     /* -----------------------------------------------------
-       NO ACTIVE SESSION
+       NO ACTIVE DATA
     ----------------------------------------------------- */
 
     if (!data) {
@@ -169,12 +209,16 @@ function renderMetrics(data) {
                 )}
 
                 ${metricHtml(
-                    "Your Offer",
+                    mode === "ai_ai"
+                        ? "Buyer Offer"
+                        : "Your Offer",
                     "—"
                 )}
 
                 ${metricHtml(
-                    "AI Offer",
+                    mode === "ai_ai"
+                        ? "Seller Offer"
+                        : "AI Offer",
                     "—"
                 )}
 
@@ -196,50 +240,127 @@ function renderMetrics(data) {
 
 
     /* -----------------------------------------------------
-       BACKEND METRIC VALUES
+       DETERMINE MODE
+    ----------------------------------------------------- */
+
+    const isAiVsAi =
+        mode === "ai_ai";
+
+
+    /* -----------------------------------------------------
+       ROUND
     ----------------------------------------------------- */
 
     const round =
-        data.round ?? "—";
+        data.round ??
+        data.current_state?.round ??
+        "—";
 
 
     const maxRounds =
-        data.max_rounds ?? "—";
+        data.max_rounds ??
+        data.current_state?.max_rounds ??
+        "—";
+
+
+    /* -----------------------------------------------------
+       STATUS
+    ----------------------------------------------------- */
+
+    const statusValue =
+        data.status ??
+        data.current_state?.status;
 
 
     const status =
         formatStatus(
-            data.status
+            statusValue
         );
+
+
+    /* -----------------------------------------------------
+       CURRENT OFFER
+    ----------------------------------------------------- */
+
+    const currentOfferValue =
+        data.current_offer ??
+        data.current_state?.current_offer ??
+        null;
 
 
     const currentOffer =
         formatCurrency(
-            data.current_offer
+            currentOfferValue
         );
 
 
-    const humanOffer =
+    /* -----------------------------------------------------
+       HUMAN / BUYER OFFER
+    ----------------------------------------------------- */
+
+    const buyerOffer =
         formatCurrency(
-            data.last_human_offer
+            getBuyerOffer(data)
         );
 
 
-    const aiOffer =
+    /* -----------------------------------------------------
+       AI / SELLER OFFER
+    ----------------------------------------------------- */
+
+    const sellerOffer =
         formatCurrency(
-            data.last_ai_offer
+            getSellerOffer(data)
         );
 
+
+    /* -----------------------------------------------------
+       AGREED PRICE
+    ----------------------------------------------------- */
 
     const agreedPrice =
         formatCurrency(
-            data.agreed_price
+
+            data.agreed_price ??
+            data.current_state?.agreed_price
+
         );
 
 
+    /* -----------------------------------------------------
+       STAGNANT ROUNDS
+    ----------------------------------------------------- */
+
     const stagnantRounds =
         data.stagnant_round_count ??
+        data.current_state?.stagnant_round_count ??
         0;
+
+
+    /* -----------------------------------------------------
+       OFFER LABELS
+    ----------------------------------------------------- */
+
+    const firstOfferLabel =
+        isAiVsAi
+            ? "Buyer Offer"
+            : "Your Offer";
+
+
+    const secondOfferLabel =
+        isAiVsAi
+            ? "Seller Offer"
+            : "AI Offer";
+
+
+    /* -----------------------------------------------------
+       DEADLOCK REASON
+    ----------------------------------------------------- */
+
+    const deadlockReason =
+        data.deadlock_reason ??
+        data.current_state?.deadlock_reason ??
+        null;
 
 
     /* -----------------------------------------------------
@@ -269,14 +390,14 @@ function renderMetrics(data) {
 
 
             ${metricHtml(
-                "Your Offer",
-                humanOffer
+                firstOfferLabel,
+                buyerOffer
             )}
 
 
             ${metricHtml(
-                "AI Offer",
-                aiOffer
+                secondOfferLabel,
+                sellerOffer
             )}
 
 
@@ -295,8 +416,7 @@ function renderMetrics(data) {
 
 
             ${
-                data.status ===
-                "deadlocked"
+                statusValue === "deadlocked"
 
                     ? `
 
@@ -309,7 +429,7 @@ function renderMetrics(data) {
                             <p>
 
                                 ${escapeHtml(
-                                    data.deadlock_reason ||
+                                    deadlockReason ||
                                     "Negotiation reached a deadlock."
                                 )}
 
