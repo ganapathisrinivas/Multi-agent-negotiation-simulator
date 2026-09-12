@@ -14,10 +14,7 @@ function formatCurrency(value) {
 
     }
 
-
-    const number =
-        Number(value);
-
+    const number = Number(value);
 
     if (!Number.isFinite(number)) {
 
@@ -25,21 +22,17 @@ function formatCurrency(value) {
 
     }
 
-
     return new Intl.NumberFormat(
 
         "en-IN",
 
         {
 
-            style:
-                "currency",
+            style: "currency",
 
-            currency:
-                "INR",
+            currency: "INR",
 
-            maximumFractionDigits:
-                0,
+            maximumFractionDigits: 0,
 
         }
 
@@ -59,7 +52,6 @@ function formatStatus(status) {
         return "UNKNOWN";
 
     }
-
 
     return String(status)
 
@@ -138,37 +130,58 @@ function metricHtml(
 
 
 /* =========================================================
-   GET BUYER / SELLER OFFER VALUES
-   Works with both normal state fields and AI-vs-AI state.
+   GET BUYER OFFER VALUES
 ========================================================= */
 
 function getBuyerOffer(data) {
 
     return (
+
         data?.buyer_offer ??
+
         data?.last_buyer_offer ??
+
         data?.buyer_last_offer ??
+
         data?.current_state?.buyer_offer ??
+
         data?.current_state?.last_buyer_offer ??
+
         data?.current_state?.buyer_last_offer ??
+
         data?.last_human_offer ??
+
         null
+
     );
 
 }
 
 
+/* =========================================================
+   GET SELLER OFFER VALUES
+========================================================= */
+
 function getSellerOffer(data) {
 
     return (
+
         data?.seller_offer ??
+
         data?.last_seller_offer ??
+
         data?.seller_last_offer ??
+
         data?.current_state?.seller_offer ??
+
         data?.current_state?.last_seller_offer ??
+
         data?.current_state?.seller_last_offer ??
+
         data?.last_ai_offer ??
+
         null
+
     );
 
 }
@@ -209,27 +222,28 @@ function renderMetrics(
                 )}
 
                 ${metricHtml(
+
                     mode === "ai_ai"
                         ? "Buyer Offer"
                         : "Your Offer",
+
                     "—"
+
                 )}
 
                 ${metricHtml(
+
                     mode === "ai_ai"
                         ? "Seller Offer"
                         : "AI Offer",
+
                     "—"
+
                 )}
 
                 ${metricHtml(
                     "Agreed Price",
                     "—"
-                )}
-
-                ${metricHtml(
-                    "Stagnant Rounds",
-                    "0"
                 )}
 
             </div>
@@ -252,14 +266,20 @@ function renderMetrics(
     ----------------------------------------------------- */
 
     const round =
+
         data.round ??
+
         data.current_state?.round ??
+
         "—";
 
 
     const maxRounds =
+
         data.max_rounds ??
+
         data.current_state?.max_rounds ??
+
         "—";
 
 
@@ -268,11 +288,14 @@ function renderMetrics(
     ----------------------------------------------------- */
 
     const statusValue =
+
         data.status ??
+
         data.current_state?.status;
 
 
     const status =
+
         formatStatus(
             statusValue
         );
@@ -283,32 +306,38 @@ function renderMetrics(
     ----------------------------------------------------- */
 
     const currentOfferValue =
+
         data.current_offer ??
+
         data.current_state?.current_offer ??
+
         null;
 
 
     const currentOffer =
+
         formatCurrency(
             currentOfferValue
         );
 
 
     /* -----------------------------------------------------
-       HUMAN / BUYER OFFER
+       BUYER / HUMAN OFFER
     ----------------------------------------------------- */
 
     const buyerOffer =
+
         formatCurrency(
             getBuyerOffer(data)
         );
 
 
     /* -----------------------------------------------------
-       AI / SELLER OFFER
+       SELLER / AI OFFER
     ----------------------------------------------------- */
 
     const sellerOffer =
+
         formatCurrency(
             getSellerOffer(data)
         );
@@ -319,22 +348,14 @@ function renderMetrics(
     ----------------------------------------------------- */
 
     const agreedPrice =
+
         formatCurrency(
 
             data.agreed_price ??
+
             data.current_state?.agreed_price
 
         );
-
-
-    /* -----------------------------------------------------
-       STAGNANT ROUNDS
-    ----------------------------------------------------- */
-
-    const stagnantRounds =
-        data.stagnant_round_count ??
-        data.current_state?.stagnant_round_count ??
-        0;
 
 
     /* -----------------------------------------------------
@@ -342,12 +363,14 @@ function renderMetrics(
     ----------------------------------------------------- */
 
     const firstOfferLabel =
+
         isAiVsAi
             ? "Buyer Offer"
             : "Your Offer";
 
 
     const secondOfferLabel =
+
         isAiVsAi
             ? "Seller Offer"
             : "AI Offer";
@@ -358,8 +381,11 @@ function renderMetrics(
     ----------------------------------------------------- */
 
     const deadlockReason =
+
         data.deadlock_reason ??
+
         data.current_state?.deadlock_reason ??
+
         null;
 
 
@@ -407,14 +433,6 @@ function renderMetrics(
             )}
 
 
-            ${metricHtml(
-                "Stagnant Rounds",
-                String(
-                    stagnantRounds
-                )
-            )}
-
-
             ${
                 statusValue === "deadlocked"
 
@@ -429,8 +447,11 @@ function renderMetrics(
                             <p>
 
                                 ${escapeHtml(
+
                                     deadlockReason ||
+
                                     "Negotiation reached a deadlock."
+
                                 )}
 
                             </p>
