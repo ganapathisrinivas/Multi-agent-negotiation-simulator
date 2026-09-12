@@ -232,8 +232,57 @@ function extractPriceFromText(text) {
     return null;
   }
 
-  const value =
-    String(text);
+  const value = String(text);
+
+  /* -------------------------------------------------------
+     LAKHS
+     Example: ₹71.18 lakhs
+     71.18 × 100000 = ₹71,18,000
+  ------------------------------------------------------- */
+
+  const lakhMatch = value.match(
+    /₹?\s*([\d,]+(?:\.\d+)?)\s*(?:lakhs?|lakh)\b/i
+  );
+
+  if (lakhMatch) {
+
+    const number = Number(
+      lakhMatch[1].replace(/,/g, "")
+    );
+
+    if (Number.isFinite(number)) {
+      return number * 100000;
+    }
+  }
+
+  /* -------------------------------------------------------
+     CRORES
+     Example: ₹2 crore
+     2 × 10000000 = ₹2,00,00,000
+  ------------------------------------------------------- */
+
+  const croreMatch = value.match(
+    /₹?\s*([\d,]+(?:\.\d+)?)\s*(?:crores?|crore)\b/i
+  );
+
+  if (croreMatch) {
+
+    const number = Number(
+      croreMatch[1].replace(/,/g, "")
+    );
+
+    if (Number.isFinite(number)) {
+      return number * 10000000;
+    }
+  }
+
+  /* -------------------------------------------------------
+     DIRECT RUPEE VALUE
+     Examples:
+       ₹71,18,000
+       Buyer Offer: ₹71,18,000
+       COUNTEROFFER: ₹71,18,000
+  ------------------------------------------------------- */
 
   const patterns = [
 
@@ -241,37 +290,28 @@ function extractPriceFromText(text) {
 
     /(?:counteroffer|counter\s+offer|accepted\s+offer|offer)\s*:\s*₹?\s*([\d,]+(?:\.\d+)?)/i,
 
+    /₹\s*([\d,]+(?:\.\d+)?)/i,
+
   ];
 
-  for (
-    const pattern of patterns
-  ) {
+  for (const pattern of patterns) {
 
-    const match =
-      value.match(pattern);
+    const match = value.match(pattern);
 
     if (match) {
 
-      const number =
-        Number(
-          String(match[1])
-            .replace(/,/g, "")
-        );
+      const number = Number(
+        String(match[1]).replace(/,/g, "")
+      );
 
-      if (
-        Number.isFinite(number)
-      ) {
+      if (Number.isFinite(number)) {
         return number;
       }
-
     }
-
   }
 
   return null;
-
 }
-
 
 /* =========================================================
    NORMALIZE AI-VS-AI HISTORY
@@ -949,8 +989,9 @@ function App() {
         data.agreed_price,
 
       stagnant_round_count:
-        data.current_state
-          ?.stagnant_round_count ??
+        data.stalled_rounds ??
+        data.current_state?.stalled_rounds ??
+        data.current_state?.stagnant_round_count ??
         0,
 
       deadlock_reason:
