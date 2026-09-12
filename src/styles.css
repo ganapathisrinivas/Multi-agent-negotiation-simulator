@@ -792,3 +792,43 @@ select:disabled {
     min-height: 420px;
   }
 }
+
+/* =========================================================
+   MILESTONE 4 - PART 1
+   NEGOTIATION OUTCOME SCREEN
+========================================================= */
+
+.outcome-screen{margin-top:24px;padding:24px;border-radius:18px;border:1px solid rgba(125,145,220,.18);background:rgba(11,18,38,.94)}
+.outcome-header{display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:20px}
+.outcome-title-area{display:flex;align-items:center;gap:16px}
+.outcome-trophy{width:56px;height:56px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:25px;font-weight:900;background:rgba(70,220,160,.12);border:1px solid rgba(70,220,160,.35);color:#51e2ac}
+.outcome-eyebrow{font-size:11px;font-weight:800;letter-spacing:.16em;color:#91a4e8}
+.outcome-header h2{margin:4px 0;font-size:27px}
+.outcome-header p{margin:0;opacity:.65}
+.outcome-final-status{padding:11px 18px;border-radius:999px;font-size:13px;font-weight:800;letter-spacing:.04em;white-space:nowrap;border:1px solid rgba(255,255,255,.12)}
+.outcome-final-status.accepted{color:#58e8b2;background:rgba(72,220,160,.1);border-color:rgba(72,220,160,.4)}
+.outcome-final-status.deadlocked{color:#ff8292;background:rgba(255,88,115,.1);border-color:rgba(255,88,115,.35)}
+.outcome-panel{margin-top:18px;padding:20px;border-radius:15px;border:1px solid rgba(125,145,220,.16);background:rgba(15,23,48,.88)}
+.outcome-panel-heading{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.outcome-heading-icon{width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:10px;color:#7b8cff;background:rgba(100,120,255,.1);border:1px solid rgba(100,120,255,.2);font-weight:900}
+.outcome-panel-heading h3{margin:0;font-size:17px}
+.outcome-panel-heading p{margin:4px 0 0;opacity:.58;font-size:12px}
+.agreement-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.agreement-item{padding:16px;border-radius:11px;border:1px solid rgba(125,145,220,.12);background:rgba(9,15,32,.55)}
+.agreement-item span,.outcome-summary span{display:block;margin-bottom:7px;font-size:10px;letter-spacing:.08em;opacity:.55;font-weight:700}
+.agreement-item strong{font-size:16px;line-height:1.35}
+.timeline-table{width:100%;overflow:hidden;border-radius:11px;border:1px solid rgba(125,145,220,.12)}
+.timeline-header,.timeline-row{display:grid;grid-template-columns:80px 1fr 1fr 1fr;align-items:center}
+.timeline-header{min-height:42px;padding:0 14px;background:rgba(36,52,95,.35);font-size:10px;font-weight:800;letter-spacing:.06em;opacity:.65}
+.timeline-row{min-height:48px;padding:0 14px;border-top:1px solid rgba(125,145,220,.08);font-size:13px}
+.timeline-row strong{color:#a8b7ec}.timeline-row span{font-weight:600}.timeline-empty{padding:20px;text-align:center;border-radius:10px;opacity:.6;border:1px dashed rgba(125,145,220,.2)}
+.satisfaction-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.satisfaction-card{padding:17px;border-radius:12px;background:rgba(9,15,32,.55);border:1px solid rgba(125,145,220,.12)}
+.satisfaction-header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:13px}
+.satisfaction-header span{display:block;font-size:10px;letter-spacing:.08em;opacity:.55;margin-bottom:5px}.satisfaction-header strong{font-size:14px}.satisfaction-header b{font-size:23px}
+.satisfaction-track{height:8px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}.satisfaction-fill{height:100%;border-radius:inherit}.satisfaction-fill.buyer{background:#4ee4b0}.satisfaction-fill.seller{background:#8a6cff}
+.satisfaction-note{margin-top:12px;padding:11px 13px;border-radius:9px;font-size:12px;opacity:.58;background:rgba(255,255,255,.03)}
+.outcome-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:18px}.outcome-summary>div{padding:14px;border-radius:10px;border:1px solid rgba(125,145,220,.1);background:rgba(9,15,32,.45)}.outcome-summary strong{display:block;font-size:13px;line-height:1.4}
+@media (max-width:1000px){.agreement-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.outcome-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:700px){.outcome-header{flex-direction:column;align-items:flex-start}.agreement-grid{grid-template-columns:1fr}.timeline-table{overflow-x:auto}.timeline-header,.timeline-row{min-width:650px}.satisfaction-grid{grid-template-columns:1fr}.outcome-summary{grid-template-columns:1fr}}
+
