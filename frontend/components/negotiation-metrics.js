@@ -88,40 +88,136 @@ function metricHtml(
 
 
 /* =========================================================
-   GET BUYER OFFER
-   Supports Human-vs-AI and AI-vs-AI data.
+   NORMALIZE AI-VS-AI OFFER
+   AI-vs-AI backend/frontend values may arrive as lakhs.
+   Example:
+       126       -> ₹1,26,00,000
+       71.18     -> ₹71,18,000
+
+   Human-vs-AI values remain unchanged because they are
+   already handled as rupee amounts.
 ========================================================= */
 
-function getBuyerOffer(data) {
+function normalizeAiOffer(
+    value,
+    mode
+) {
 
-    return (
-        data?.buyer_offer ??
+    if (
+        value === null ||
+        value === undefined ||
+        value === ""
+    ) {
+        return null;
+    }
+
+    const number = Number(value);
+
+    if (!Number.isFinite(number)) {
+        return value;
+    }
+
+    /*
+     * AI-vs-AI offer values such as 126, 96.67,
+     * 71.18 represent lakhs.
+     *
+     * Full rupee values are much larger, so only
+     * convert the smaller AI-vs-AI values.
+     */
+    if (
+        mode === "ai_ai" &&
+        Math.abs(number) < 100000
+    ) {
+        return number * 100000;
+    }
+
+    return number;
+}
+
+
+/* =========================================================
+   GET BUYER OFFER
+========================================================= */
+
+function getBuyerOffer(
+    data,
+    mode
+) {
+
+    const value =
         data?.last_buyer_offer ??
         data?.buyer_last_offer ??
-        data?.current_state?.buyer_offer ??
         data?.current_state?.last_buyer_offer ??
         data?.current_state?.buyer_last_offer ??
         data?.last_human_offer ??
-        null
+        data?.buyer_offer ??
+        data?.current_state?.buyer_offer ??
+        null;
+
+    return normalizeAiOffer(
+        value,
+        mode
     );
 }
 
 
 /* =========================================================
    GET SELLER OFFER
-   Supports Human-vs-AI and AI-vs-AI data.
 ========================================================= */
 
-function getSellerOffer(data) {
+function getSellerOffer(
+    data,
+    mode
+) {
 
-    return (
-        data?.seller_offer ??
+    const value =
         data?.last_seller_offer ??
         data?.seller_last_offer ??
-        data?.current_state?.seller_offer ??
         data?.current_state?.last_seller_offer ??
         data?.current_state?.seller_last_offer ??
         data?.last_ai_offer ??
+        data?.seller_offer ??
+        data?.current_state?.seller_offer ??
+        null;
+
+    return normalizeAiOffer(
+        value,
+        mode
+    );
+}
+
+
+/* =========================================================
+   GET CURRENT OFFER
+========================================================= */
+
+function getCurrentOffer(
+    data,
+    mode
+) {
+
+    const value =
+        data?.current_offer ??
+        data?.current_state?.current_offer ??
+        null;
+
+    return normalizeAiOffer(
+        value,
+        mode
+    );
+}
+
+
+/* =========================================================
+   GET AGREED PRICE
+   Agreed price is already a full rupee value.
+========================================================= */
+
+function getAgreedPrice(data) {
+
+    return (
+        data?.agreed_price ??
+        data?.current_state?.agreed_price ??
         null
     );
 }
@@ -153,7 +249,7 @@ function renderMetrics(
 ) {
 
     /* -----------------------------------------------------
-       NO ACTIVE DATA
+       NO DATA
     ----------------------------------------------------- */
 
     if (!data) {
@@ -203,7 +299,7 @@ function renderMetrics(
 
 
     /* -----------------------------------------------------
-       DETERMINE MODE
+       MODE
     ----------------------------------------------------- */
 
     const isAiVsAi =
@@ -245,15 +341,12 @@ function renderMetrics(
        CURRENT OFFER
     ----------------------------------------------------- */
 
-    const currentOfferValue =
-        data.current_offer ??
-        data.current_state?.current_offer ??
-        null;
-
-
     const currentOffer =
         formatCurrency(
-            currentOfferValue
+            getCurrentOffer(
+                data,
+                mode
+            )
         );
 
 
@@ -263,7 +356,10 @@ function renderMetrics(
 
     const buyerOffer =
         formatCurrency(
-            getBuyerOffer(data)
+            getBuyerOffer(
+                data,
+                mode
+            )
         );
 
 
@@ -273,7 +369,10 @@ function renderMetrics(
 
     const sellerOffer =
         formatCurrency(
-            getSellerOffer(data)
+            getSellerOffer(
+                data,
+                mode
+            )
         );
 
 
@@ -283,15 +382,12 @@ function renderMetrics(
 
     const agreedPrice =
         formatCurrency(
-
-            data.agreed_price ??
-            data.current_state?.agreed_price
-
+            getAgreedPrice(data)
         );
 
 
     /* -----------------------------------------------------
-       OFFER LABELS
+       LABELS
     ----------------------------------------------------- */
 
     const firstOfferLabel =
@@ -315,7 +411,7 @@ function renderMetrics(
 
 
     /* -----------------------------------------------------
-       RETURN METRICS UI
+       METRICS UI
     ----------------------------------------------------- */
 
     return `
@@ -370,12 +466,10 @@ function renderMetrics(
                             </strong>
 
                             <p>
-
                                 ${escapeHtml(
                                     deadlockReason ||
                                     "Negotiation reached a deadlock."
                                 )}
-
                             </p>
 
                         </div>
@@ -383,7 +477,6 @@ function renderMetrics(
                     `
 
                     : ""
-
             }
 
         </div>
