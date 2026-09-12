@@ -9,42 +9,23 @@ function formatCurrency(value) {
         value === undefined ||
         value === ""
     ) {
-
         return "—";
-
     }
 
-
-    const number =
-        Number(value);
-
+    const number = Number(value);
 
     if (!Number.isFinite(number)) {
-
         return String(value);
-
     }
 
-
     return new Intl.NumberFormat(
-
         "en-IN",
-
         {
-
-            style:
-                "currency",
-
-            currency:
-                "INR",
-
-            maximumFractionDigits:
-                0,
-
+            style: "currency",
+            currency: "INR",
+            maximumFractionDigits: 0,
         }
-
     ).format(number);
-
 }
 
 
@@ -55,21 +36,12 @@ function formatCurrency(value) {
 function formatStatus(status) {
 
     if (!status) {
-
         return "UNKNOWN";
-
     }
 
-
     return String(status)
-
-        .replace(
-            /_/g,
-            " "
-        )
-
+        .replace(/_/g, " ")
         .toUpperCase();
-
 }
 
 
@@ -80,32 +52,11 @@ function formatStatus(status) {
 function escapeHtml(value) {
 
     return String(value ?? "")
-
-        .replace(
-            /&/g,
-            "&amp;"
-        )
-
-        .replace(
-            /</g,
-            "&lt;"
-        )
-
-        .replace(
-            />/g,
-            "&gt;"
-        )
-
-        .replace(
-            /"/g,
-            "&quot;"
-        )
-
-        .replace(
-            /'/g,
-            "&#039;"
-        );
-
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 
@@ -133,7 +84,62 @@ function metricHtml(
         </div>
 
     `;
+}
 
+
+/* =========================================================
+   GET BUYER OFFER
+   Supports Human-vs-AI and AI-vs-AI data.
+========================================================= */
+
+function getBuyerOffer(data) {
+
+    return (
+        data?.buyer_offer ??
+        data?.last_buyer_offer ??
+        data?.buyer_last_offer ??
+        data?.current_state?.buyer_offer ??
+        data?.current_state?.last_buyer_offer ??
+        data?.current_state?.buyer_last_offer ??
+        data?.last_human_offer ??
+        null
+    );
+}
+
+
+/* =========================================================
+   GET SELLER OFFER
+   Supports Human-vs-AI and AI-vs-AI data.
+========================================================= */
+
+function getSellerOffer(data) {
+
+    return (
+        data?.seller_offer ??
+        data?.last_seller_offer ??
+        data?.seller_last_offer ??
+        data?.current_state?.seller_offer ??
+        data?.current_state?.last_seller_offer ??
+        data?.current_state?.seller_last_offer ??
+        data?.last_ai_offer ??
+        null
+    );
+}
+
+
+/* =========================================================
+   GET DEADLOCK REASON
+========================================================= */
+
+function getDeadlockReason(data) {
+
+    return (
+        data?.deadlock_reason ??
+        data?.current_state?.deadlock_reason ??
+        data?.deadlock?.reason ??
+        data?.current_state?.deadlock?.reason ??
+        null
+    );
 }
 
 
@@ -141,10 +147,13 @@ function metricHtml(
    RENDER NEGOTIATION METRICS
 ========================================================= */
 
-function renderMetrics(data) {
+function renderMetrics(
+    data,
+    mode = "human_ai"
+) {
 
     /* -----------------------------------------------------
-       NO ACTIVE SESSION
+       NO ACTIVE DATA
     ----------------------------------------------------- */
 
     if (!data) {
@@ -169,12 +178,16 @@ function renderMetrics(data) {
                 )}
 
                 ${metricHtml(
-                    "Your Offer",
+                    mode === "ai_ai"
+                        ? "Buyer Offer"
+                        : "Your Offer",
                     "—"
                 )}
 
                 ${metricHtml(
-                    "AI Offer",
+                    mode === "ai_ai"
+                        ? "Seller Offer"
+                        : "AI Offer",
                     "—"
                 )}
 
@@ -183,63 +196,122 @@ function renderMetrics(data) {
                     "—"
                 )}
 
-                ${metricHtml(
-                    "Stagnant Rounds",
-                    "0"
-                )}
-
             </div>
 
         `;
-
     }
 
 
     /* -----------------------------------------------------
-       BACKEND METRIC VALUES
+       DETERMINE MODE
+    ----------------------------------------------------- */
+
+    const isAiVsAi =
+        mode === "ai_ai";
+
+
+    /* -----------------------------------------------------
+       ROUND
     ----------------------------------------------------- */
 
     const round =
-        data.round ?? "—";
+        data.round ??
+        data.current_state?.round ??
+        "—";
 
 
     const maxRounds =
-        data.max_rounds ?? "—";
+        data.max_rounds ??
+        data.current_state?.max_rounds ??
+        "—";
+
+
+    /* -----------------------------------------------------
+       STATUS
+    ----------------------------------------------------- */
+
+    const statusValue =
+        data.status ??
+        data.current_state?.status;
 
 
     const status =
         formatStatus(
-            data.status
+            statusValue
         );
+
+
+    /* -----------------------------------------------------
+       CURRENT OFFER
+    ----------------------------------------------------- */
+
+    const currentOfferValue =
+        data.current_offer ??
+        data.current_state?.current_offer ??
+        null;
 
 
     const currentOffer =
         formatCurrency(
-            data.current_offer
+            currentOfferValue
         );
 
 
-    const humanOffer =
+    /* -----------------------------------------------------
+       BUYER / HUMAN OFFER
+    ----------------------------------------------------- */
+
+    const buyerOffer =
         formatCurrency(
-            data.last_human_offer
+            getBuyerOffer(data)
         );
 
 
-    const aiOffer =
+    /* -----------------------------------------------------
+       SELLER / AI OFFER
+    ----------------------------------------------------- */
+
+    const sellerOffer =
         formatCurrency(
-            data.last_ai_offer
+            getSellerOffer(data)
         );
 
+
+    /* -----------------------------------------------------
+       AGREED PRICE
+    ----------------------------------------------------- */
 
     const agreedPrice =
         formatCurrency(
-            data.agreed_price
+
+            data.agreed_price ??
+            data.current_state?.agreed_price
+
         );
 
 
-    const stagnantRounds =
-        data.stagnant_round_count ??
-        0;
+    /* -----------------------------------------------------
+       OFFER LABELS
+    ----------------------------------------------------- */
+
+    const firstOfferLabel =
+        isAiVsAi
+            ? "Buyer Offer"
+            : "Your Offer";
+
+
+    const secondOfferLabel =
+        isAiVsAi
+            ? "Seller Offer"
+            : "AI Offer";
+
+
+    /* -----------------------------------------------------
+       DEADLOCK REASON
+    ----------------------------------------------------- */
+
+    const deadlockReason =
+        getDeadlockReason(data);
 
 
     /* -----------------------------------------------------
@@ -269,14 +341,14 @@ function renderMetrics(data) {
 
 
             ${metricHtml(
-                "Your Offer",
-                humanOffer
+                firstOfferLabel,
+                buyerOffer
             )}
 
 
             ${metricHtml(
-                "AI Offer",
-                aiOffer
+                secondOfferLabel,
+                sellerOffer
             )}
 
 
@@ -286,17 +358,8 @@ function renderMetrics(data) {
             )}
 
 
-            ${metricHtml(
-                "Stagnant Rounds",
-                String(
-                    stagnantRounds
-                )
-            )}
-
-
             ${
-                data.status ===
-                "deadlocked"
+                String(statusValue).toLowerCase() === "deadlocked"
 
                     ? `
 
@@ -309,7 +372,7 @@ function renderMetrics(data) {
                             <p>
 
                                 ${escapeHtml(
-                                    data.deadlock_reason ||
+                                    deadlockReason ||
                                     "Negotiation reached a deadlock."
                                 )}
 
@@ -326,7 +389,6 @@ function renderMetrics(data) {
         </div>
 
     `;
-
 }
 
 

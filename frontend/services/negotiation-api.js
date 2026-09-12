@@ -106,7 +106,7 @@ async function getProperties(
 
 
 /* =========================================================
-   START NEGOTIATION
+   START HUMAN VS AI NEGOTIATION
 ========================================================= */
 
 async function startNegotiation(
@@ -159,6 +159,72 @@ async function startNegotiation(
 
                     ai_personality:
                         aiPersonality,
+
+                    max_rounds:
+                        Number(maxRounds),
+
+                }),
+
+        }
+
+    );
+
+}
+
+
+/* =========================================================
+   START AI VS AI SIMULATION
+========================================================= */
+
+async function startAiVsAi(
+    options = {}
+) {
+
+    const {
+
+        scenario = 2,
+
+        propertyIndex = 0,
+
+        buyerPersonality = 2,
+
+        sellerPersonality = 2,
+
+        maxRounds = 10,
+
+    } = options;
+
+
+    return requestJson(
+
+        `${API_BASE_URL}/negotiations`,
+
+        {
+
+            method:
+                "POST",
+
+            headers: {
+
+                "Content-Type":
+                    "application/json",
+
+            },
+
+            body:
+                JSON.stringify({
+
+                    scenario:
+                        Number(scenario),
+
+                    buyer_personality:
+                        Number(buyerPersonality),
+
+                    seller_personality:
+                        Number(sellerPersonality),
+
+                    property_index:
+                        Number(propertyIndex),
 
                     max_rounds:
                         Number(maxRounds),
@@ -287,6 +353,8 @@ export {
     getProperties,
 
     startNegotiation,
+
+    startAiVsAi,
 
     getNegotiationState,
 
