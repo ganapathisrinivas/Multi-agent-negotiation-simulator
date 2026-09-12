@@ -18,6 +18,8 @@ import {
   sendOffer,
   getNegotiationHistory,
   cancelNegotiation,
+  downloadTranscript,
+  downloadSummaryReport,
 } from "../frontend/services/negotiation-api.js";
 
 /*
@@ -452,6 +454,250 @@ function getLastAgentOffers(
 
 
 /* =========================================================
+   CLIENT EXPORT FORMATTERS (FALLBACK & ZERO-LATENCY)
+========================================================= */
+
+function triggerBrowserBlobDownload(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
+function formatClientTranscriptText(session, propertyData) {
+  const propTitle = propertyData?.title || propertyData?.["Property Title"] || propertyData?.Property_Name || "Real Estate Property";
+  const propLoc = propertyData?.Location || propertyData?.location || propertyData?.City || "N/A";
+  const propArea = propertyData?.Total_Area || propertyData?.area || propertyData?.Area || "N/A";
+  const refPrice = money(session.reference_price);
+  const statusStr = (session.status || "UNKNOWN").toUpperCase();
+  const agreedStr = session.agreed_price !== null && session.agreed_price !== undefined ? money(session.agreed_price) : "No Agreement";
+  const modeStr = session.mode === "ai_ai" ? "AI vs AI Simulation" : "Human vs AI Practice";
+  
+  const sep = "=".repeat(80);
+  const subSep = "-".repeat(80);
+  const lines = [
+    sep,
+    "                   REAL ESTATE NEGOTIATION TRANSCRIPT",
+    sep,
+    `Negotiation ID   : ${session.negotiation_id}`,
+    `Mode             : ${modeStr}`,
+    `Generated At     : ${new Date().toLocaleString()}`,
+    `Property Title   : ${propTitle}`,
+    `Location         : ${propLoc}`,
+    `Total Area       : ${propArea}`,
+    `Reference Price  : ${refPrice}`,
+    `Final Status     : ${statusStr}`,
+    `Agreed Price     : ${agreedStr}`,
+    `Rounds Completed : ${session.round || 0} / ${session.max_rounds || 10}`,
+    sep,
+    "",
+    "DIALOGUE HISTORY:",
+    ""
+  ];
+
+  (session.history || []).forEach((item) => {
+    let speaker = item.sender || item.agent || "Participant";
+    if (speaker.includes("human_buyer")) speaker = "Human (Buyer)";
+    else if (speaker.includes("human_seller")) speaker = "Human (Seller)";
+    else if (speaker.includes("ai_buyer") || speaker === "Buyer Agent") speaker = "Buyer Agent";
+    else if (speaker.includes("ai_seller") || speaker === "Seller Agent") speaker = "Seller Agent";
+    
+    lines.push(subSep);
+    lines.push(`[ROUND ${item.round ?? 0}] ${speaker.toUpperCase()}`);
+    if (item.decision) lines.push(`Decision : ${item.decision}`);
+    if (item.offer !== null && item.offer !== undefined) lines.push(`Offer    : ${money(item.offer)}`);
+    lines.push(`Message  :\n  ${item.message || ""}`);
+    if (item.reason) lines.push(`Reasoning: ${item.reason}`);
+    lines.push("");
+  });
+
+  lines.push(sep);
+  lines.push("                        END OF TRANSCRIPT");
+  lines.push(sep);
+  return lines.join("\n");
+}
+
+function formatClientTranscriptMarkdown(session, propertyData) {
+  const propTitle = propertyData?.title || propertyData?.["Property Title"] || propertyData?.Property_Name || "Real Estate Property";
+  const propLoc = propertyData?.Location || propertyData?.location || propertyData?.City || "N/A";
+  const propArea = propertyData?.Total_Area || propertyData?.area || propertyData?.Area || "N/A";
+  const refPrice = money(session.reference_price);
+  const statusStr = (session.status || "UNKNOWN").toUpperCase();
+  const agreedStr = session.agreed_price !== null && session.agreed_price !== undefined ? money(session.agreed_price) : "No Agreement";
+  const modeStr = session.mode === "ai_ai" ? "AI vs AI Simulation" : "Human vs AI Practice";
+
+  const lines = [
+    `# 📜 Negotiation Transcript`,
+    `**Session ID:** \`${session.negotiation_id}\`  `,
+    `**Mode:** ${modeStr}  `,
+    `**Generated:** ${new Date().toLocaleString()}  \n`,
+    `## 📌 Property & Session Details`,
+    `- **Property:** ${propTitle}`,
+    `- **Location:** ${propLoc}`,
+    `- **Area:** ${propArea}`,
+    `- **Reference Price:** ${refPrice}`,
+    `- **Final Outcome:** \`${statusStr}\``,
+    `- **Agreed Price:** **${agreedStr}**`,
+    `- **Rounds Completed:** ${session.round || 0} of ${session.max_rounds || 10}\n`,
+    `---`,
+    `## 💬 Round-by-Round Dialogue Log\n`
+  ];
+
+  (session.history || []).forEach((item) => {
+    let speaker = item.sender || item.agent || "Participant";
+    if (speaker.includes("human_buyer")) speaker = "Human (Buyer)";
+    else if (speaker.includes("human_seller")) speaker = "Human (Seller)";
+    else if (speaker.includes("ai_buyer") || speaker === "Buyer Agent") speaker = "Buyer Agent";
+    else if (speaker.includes("ai_seller") || speaker === "Seller Agent") speaker = "Seller Agent";
+
+    lines.push(`### Round ${item.round ?? 0} • ${speaker}`);
+    if (item.decision) lines.push(`**Decision:** \`${item.decision}\`  `);
+    if (item.offer !== null && item.offer !== undefined) lines.push(`**Offer:** \`${money(item.offer)}\`  `);
+    lines.push(`\n> ${item.message || ""}\n`);
+    if (item.reason) lines.push(`*Strategic Rationale:* ${item.reason}\n`);
+    lines.push("");
+  });
+
+  lines.push(`---`, `*End of Transcript — Real Estate Negotiation Arena*`);
+  return lines.join("\n");
+}
+
+function formatClientSummaryReportMarkdown(session, propertyData) {
+  const propTitle = propertyData?.title || propertyData?.["Property Title"] || propertyData?.Property_Name || "Real Estate Property";
+  const propLoc = propertyData?.Location || propertyData?.location || propertyData?.City || "N/A";
+  const propArea = propertyData?.Total_Area || propertyData?.area || propertyData?.Area || "N/A";
+  const propBhk = propertyData?.Bedrooms || propertyData?.BHK || propertyData?.bhk || "N/A";
+  const propDesc = propertyData?.Description || propertyData?.description || "N/A";
+  const refPrice = money(session.reference_price);
+  const agreedStr = session.agreed_price !== null && session.agreed_price !== undefined ? money(session.agreed_price) : "N/A (No Agreement)";
+  const statusStr = (session.status || "UNKNOWN").toUpperCase();
+  const modeStr = session.mode === "ai_ai" ? "AI vs AI Simulation" : "Human vs AI Practice";
+
+  const lines = [
+    `# 📊 Real Estate Negotiation Summary Report`,
+    `> **Session ID:** \`${session.negotiation_id}\` | **Mode:** ${modeStr} | **Date:** ${new Date().toLocaleString()}\n`,
+    `## 🏆 1. Executive Summary`,
+    `| Metric | Value |`,
+    `| :--- | :--- |`,
+    `| **Final Status** | \`${statusStr}\` |`,
+    `| **Agreed Price** | **${agreedStr}** |`,
+    `| **Reference / Listing Price** | ${refPrice} |`,
+    `| **Rounds Utilized** | ${session.round || 0} / ${session.max_rounds || 10} |`
+  ];
+
+  if (session.deadlock_reason) {
+    lines.push(`| **Impasse / Deadlock Reason** | *${session.deadlock_reason}* |`);
+  }
+
+  lines.push(
+    "",
+    `## 🏡 2. Property Overview`,
+    `- **Property Name:** ${propTitle}`,
+    `- **Location:** ${propLoc}`,
+    `- **Area & Configuration:** ${propArea} | ${propBhk} BHK`,
+    `- **Description Snippet:** *${String(propDesc).slice(0, 200)}...*`,
+    "",
+    `## 📈 3. Offer & Counteroffer Progression`,
+    `| Round | Speaker | Action / Decision | Offer | Snippet |`,
+    `| :---: | :--- | :---: | :---: | :--- |`
+  );
+
+  let hasOffers = false;
+  (session.history || []).forEach((item) => {
+    if (item.offer !== null && item.offer !== undefined) {
+      hasOffers = true;
+      let speaker = item.sender || item.agent || "Participant";
+      if (speaker.includes("human")) speaker = "Human";
+      else if (speaker.includes("buyer")) speaker = "Buyer Agent";
+      else if (speaker.includes("seller")) speaker = "Seller Agent";
+      const snippet = (item.message || "").replace(/[\r\n]+/g, " ").slice(0, 60);
+      lines.push(`| ${item.round ?? 0} | ${speaker} | \`${item.decision || "OFFER"}\` | **${money(item.offer)}** | ${snippet}... |`);
+    }
+  });
+
+  if (!hasOffers) {
+    lines.push(`*No numeric offers were exchanged during this session.*`);
+  }
+
+  lines.push(
+    "",
+    `## 💡 4. Strategic Observations`,
+    session.status === "accepted" || session.status === "agreement_reached"
+      ? `✅ **Successful Deal:** The parties successfully converged to an agreed price of **${agreedStr}** within ${session.round || 0} rounds.`
+      : session.status === "deadlocked"
+      ? `⚠️ **Negotiation Deadlock:** The parties reached an impasse without further concession. ${session.deadlock_reason || ""}`
+      : `ℹ️ **Negotiation Concluded:** Session completed with status \`${statusStr}\`.`,
+    "",
+    `---`,
+    `*Generated by AI-Driven Multi-Agent Negotiation Training & Simulation Platform*`
+  );
+
+  return lines.join("\n");
+}
+
+function formatClientSummaryReportText(session, propertyData) {
+  const propTitle = propertyData?.title || propertyData?.["Property Title"] || propertyData?.Property_Name || "Real Estate Property";
+  const propLoc = propertyData?.Location || propertyData?.location || propertyData?.City || "N/A";
+  const propArea = propertyData?.Total_Area || propertyData?.area || propertyData?.Area || "N/A";
+  const propBhk = propertyData?.Bedrooms || propertyData?.BHK || propertyData?.bhk || "N/A";
+  const refPrice = money(session.reference_price);
+  const agreedStr = session.agreed_price !== null && session.agreed_price !== undefined ? money(session.agreed_price) : "N/A (No Agreement)";
+  const statusStr = (session.status || "UNKNOWN").toUpperCase();
+  const modeStr = session.mode === "ai_ai" ? "AI vs AI Simulation" : "Human vs AI Practice";
+
+  const sep = "=".repeat(80);
+  const subSep = "-".repeat(80);
+  const lines = [
+    sep,
+    "                 REAL ESTATE NEGOTIATION SUMMARY REPORT",
+    sep,
+    `Negotiation ID   : ${session.negotiation_id}`,
+    `Mode             : ${modeStr}`,
+    `Generated At     : ${new Date().toLocaleString()}`,
+    `Final Outcome    : ${statusStr}`,
+    `Rounds Used      : ${session.round || 0} of ${session.max_rounds || 10}`,
+    sep,
+    "",
+    "1. PROPERTY PROFILE",
+    `   Property Title: ${propTitle}`,
+    `   Location      : ${propLoc}`,
+    `   Area / Config : ${propArea} | ${propBhk} BHK`,
+    `   Reference Val : ${refPrice}`,
+    "",
+    "2. FINANCIAL OUTCOME",
+    `   Reference Price : ${refPrice}`,
+    `   Agreed Price    : ${agreedStr}`,
+  ];
+
+  if (session.deadlock_reason) {
+    lines.push(`   Deadlock Reason : ${session.deadlock_reason}`);
+  }
+
+  lines.push("", "3. OFFERS TIMELINE", subSep);
+  lines.push(`${"Rnd".padEnd(4)} | ${"Speaker".padEnd(24)} | ${"Decision".padEnd(12)} | ${"Offer".padEnd(18)}`);
+  lines.push(subSep);
+
+  (session.history || []).forEach((item) => {
+    if (item.offer !== null && item.offer !== undefined) {
+      let speaker = item.sender || item.agent || "Participant";
+      if (speaker.includes("human")) speaker = "Human";
+      else if (speaker.includes("buyer")) speaker = "Buyer Agent";
+      else if (speaker.includes("seller")) speaker = "Seller Agent";
+      lines.push(`${String(item.round ?? 0).padEnd(4)} | ${speaker.slice(0, 24).padEnd(24)} | ${String(item.decision || "OFFER").slice(0, 12).padEnd(12)} | ${money(item.offer).padEnd(18)}`);
+    }
+  });
+
+  lines.push(sep, "                      END OF SUMMARY REPORT", sep);
+  return lines.join("\n");
+}
+
+
+/* =========================================================
    MAIN APP
 ========================================================= */
 
@@ -541,6 +787,22 @@ function App() {
 
   const [error, setError] =
     useState("");
+
+  /* -------------------------------------------------------
+     DOWNLOAD STATES
+  ------------------------------------------------------- */
+
+  const [downloadingTranscript, setDownloadingTranscript] =
+    useState(false);
+
+  const [downloadingReport, setDownloadingReport] =
+    useState(false);
+
+  const [transcriptMenuOpen, setTranscriptMenuOpen] =
+    useState(false);
+
+  const [reportMenuOpen, setReportMenuOpen] =
+    useState(false);
 
 
   /* =======================================================
@@ -932,6 +1194,7 @@ function App() {
         "ai_ai",
 
       negotiation_id:
+        data.negotiation_id ||
         `ai-ai-${Date.now()}`,
 
       status:
@@ -1494,6 +1757,124 @@ function App() {
 
     }
 
+  }
+
+
+  /* =======================================================
+     DOWNLOAD TRANSCRIPT HANDLER
+  ======================================================= */
+
+  async function handleDownloadTranscript(format = "txt") {
+    if (!session?.negotiation_id) {
+      return;
+    }
+
+    setDownloadingTranscript(true);
+    setError("");
+
+    try {
+      await downloadTranscript(session.negotiation_id, format);
+    } catch (err) {
+      console.warn("Backend transcript download failed; using client-side fallback:", err);
+
+      try {
+        if (format === "json") {
+          const jsonData = JSON.stringify({
+            negotiation_id: session.negotiation_id,
+            mode: session.mode,
+            status: session.status,
+            round: session.round,
+            max_rounds: session.max_rounds,
+            property: propertyData,
+            agreed_price: session.agreed_price,
+            reference_price: session.reference_price,
+            history: session.history || []
+          }, null, 2);
+          triggerBrowserBlobDownload(
+            jsonData,
+            `negotiation_transcript_${session.negotiation_id}.json`,
+            "application/json"
+          );
+        } else if (format === "md" || format === "markdown") {
+          const mdContent = formatClientTranscriptMarkdown(session, propertyData);
+          triggerBrowserBlobDownload(
+            mdContent,
+            `negotiation_transcript_${session.negotiation_id}.md`,
+            "text/markdown; charset=utf-8"
+          );
+        } else {
+          const txtContent = formatClientTranscriptText(session, propertyData);
+          triggerBrowserBlobDownload(
+            txtContent,
+            `negotiation_transcript_${session.negotiation_id}.txt`,
+            "text/plain; charset=utf-8"
+          );
+        }
+      } catch (fallbackError) {
+        setError("Failed to download transcript: " + fallbackError.message);
+      }
+    } finally {
+      setDownloadingTranscript(false);
+    }
+  }
+
+
+  /* =======================================================
+     DOWNLOAD SUMMARY REPORT HANDLER
+  ======================================================= */
+
+  async function handleDownloadSummaryReport(format = "md") {
+    if (!session?.negotiation_id) {
+      return;
+    }
+
+    setDownloadingReport(true);
+    setError("");
+
+    try {
+      await downloadSummaryReport(session.negotiation_id, format);
+    } catch (err) {
+      console.warn("Backend summary report download failed; using client-side fallback:", err);
+
+      try {
+        if (format === "json") {
+          const jsonData = JSON.stringify({
+            negotiation_id: session.negotiation_id,
+            mode: session.mode,
+            status: session.status,
+            round: session.round,
+            max_rounds: session.max_rounds,
+            property: propertyData,
+            agreed_price: session.agreed_price,
+            reference_price: session.reference_price,
+            history: session.history || []
+          }, null, 2);
+          triggerBrowserBlobDownload(
+            jsonData,
+            `negotiation_summary_report_${session.negotiation_id}.json`,
+            "application/json"
+          );
+        } else if (format === "txt") {
+          const txtContent = formatClientSummaryReportText(session, propertyData);
+          triggerBrowserBlobDownload(
+            txtContent,
+            `negotiation_summary_report_${session.negotiation_id}.txt`,
+            "text/plain; charset=utf-8"
+          );
+        } else {
+          const mdContent = formatClientSummaryReportMarkdown(session, propertyData);
+          triggerBrowserBlobDownload(
+            mdContent,
+            `negotiation_summary_report_${session.negotiation_id}.md`,
+            "text/markdown; charset=utf-8"
+          );
+        }
+      } catch (fallbackError) {
+        setError("Failed to download summary report: " + fallbackError.message);
+      }
+    } finally {
+      setDownloadingReport(false);
+    }
   }
 
 
@@ -2543,32 +2924,92 @@ function App() {
               </div>
 
 
-              {session &&
-                !isAiVsAi && (
+              <div className="transcript-actions">
 
-                  <button
+                {session && session.history && session.history.length > 0 && (
+                  <div className="download-dropdown-wrap">
+                    <button
+                      type="button"
+                      className="download-btn secondary"
+                      onClick={() => setTranscriptMenuOpen(!transcriptMenuOpen)}
+                      disabled={downloadingTranscript}
+                      title="Export negotiation transcript"
+                    >
+                      <span>📄</span>
+                      <span>
+                        {downloadingTranscript ? "Exporting..." : "Export Transcript"}
+                      </span>
+                      <span className="dropdown-arrow">▾</span>
+                    </button>
 
-                    type="button"
-
-                    className="cancel-btn"
-
-                    onClick={
-                      handleCancelNegotiation
-                    }
-
-                    disabled={
-
-                      loading ||
-                      status !==
-                        "active"
-
-                    }
-
-                  >
-                    End session
-                  </button>
-
+                    {transcriptMenuOpen && (
+                      <div className="dropdown-menu">
+                        <button
+                          type="button"
+                          className="dropdown-item"
+                          onClick={() => {
+                            setTranscriptMenuOpen(false);
+                            handleDownloadTranscript("txt");
+                          }}
+                        >
+                          <div className="item-title">Plain Text (.txt)</div>
+                          <div className="item-desc">Clean conversation log</div>
+                        </button>
+                        <button
+                          type="button"
+                          className="dropdown-item"
+                          onClick={() => {
+                            setTranscriptMenuOpen(false);
+                            handleDownloadTranscript("md");
+                          }}
+                        >
+                          <div className="item-title">Markdown (.md)</div>
+                          <div className="item-desc">GitHub-flavored markdown</div>
+                        </button>
+                        <button
+                          type="button"
+                          className="dropdown-item"
+                          onClick={() => {
+                            setTranscriptMenuOpen(false);
+                            handleDownloadTranscript("json");
+                          }}
+                        >
+                          <div className="item-title">Structured JSON (.json)</div>
+                          <div className="item-desc">Full session & history payload</div>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
+
+                {session &&
+                  !isAiVsAi && (
+
+                    <button
+
+                      type="button"
+
+                      className="cancel-btn"
+
+                      onClick={
+                        handleCancelNegotiation
+                      }
+
+                      disabled={
+
+                        loading ||
+                        status !==
+                          "active"
+
+                      }
+
+                    >
+                      End session
+                    </button>
+
+                  )}
+
+              </div>
 
             </div>
 
@@ -2764,35 +3205,57 @@ function App() {
                   className={`result-banner ${status}`}
                 >
 
-                  <strong>
+                  <div>
+                    <strong>
 
-                    AI vs AI simulation{" "}
-                    {status
-                      .replace(
-                        /_/g,
-                        " "
-                      )
-                      .toUpperCase()}.
+                      AI vs AI simulation{" "}
+                      {status
+                        .replace(
+                          /_/g,
+                          " "
+                        )
+                        .toUpperCase()}.
 
-                  </strong>
+                    </strong>
 
-                  {session.agreed_price !==
-                    null &&
-                    session.agreed_price !==
-                    undefined && (
+                    {session.agreed_price !==
+                      null &&
+                      session.agreed_price !==
+                      undefined && (
 
-                    <span>
+                      <span>
 
-                      {" "}
-                      Agreed price:{" "}
+                        {" "}
+                        Agreed price:{" "}
 
-                      {money(
-                        session.agreed_price
-                      )}
+                        {money(
+                          session.agreed_price
+                        )}
 
-                    </span>
+                      </span>
 
-                  )}
+                    )}
+                  </div>
+
+                  <div className="completion-actions">
+                    <button
+                      type="button"
+                      className="download-btn secondary"
+                      onClick={() => handleDownloadTranscript("txt")}
+                      disabled={downloadingTranscript}
+                    >
+                      <span>📄</span> Export Transcript
+                    </button>
+
+                    <button
+                      type="button"
+                      className="download-btn primary"
+                      onClick={() => handleDownloadSummaryReport("html")}
+                      disabled={downloadingReport}
+                    >
+                      <span>📊</span> Download Summary Report
+                    </button>
+                  </div>
 
                 </div>
 
@@ -2812,20 +3275,42 @@ function App() {
                   className={`result-banner ${status}`}
                 >
 
-                  <strong>
+                  <div>
+                    <strong>
 
-                    Negotiation{" "}
-                    {status}.
+                      Negotiation{" "}
+                      {status}.
 
-                  </strong>
+                    </strong>
 
-                  {latestDecision?.message
+                    {latestDecision?.message
 
-                    ? " Review the final AI decision above."
+                      ? " Review the final AI decision above."
 
-                    : " Start a new session to negotiate again."
+                      : " Start a new session to negotiate again."
 
-                  }
+                    }
+                  </div>
+
+                  <div className="completion-actions">
+                    <button
+                      type="button"
+                      className="download-btn secondary"
+                      onClick={() => handleDownloadTranscript("txt")}
+                      disabled={downloadingTranscript}
+                    >
+                      <span>📄</span> Export Transcript
+                    </button>
+
+                    <button
+                      type="button"
+                      className="download-btn primary"
+                      onClick={() => handleDownloadSummaryReport("html")}
+                      disabled={downloadingReport}
+                    >
+                      <span>📊</span> Download Summary Report
+                    </button>
+                  </div>
 
                 </div>
 
@@ -3062,6 +3547,94 @@ function App() {
             />
 
           </section>
+
+
+          {/* =================================================
+             NEGOTIATION SUMMARY REPORT PANEL
+          ================================================= */}
+
+          {session && (
+            <section className="panel report-panel">
+
+              <div
+                className="panel-title"
+              >
+
+                <span>
+                  05
+                </span>
+
+                Summary Report
+
+              </div>
+
+              <div className="report-box">
+
+                <div className="report-info">
+                  <strong>Executive Summary Report</strong>
+                  <p>
+                    Download a comprehensive summary report with property details, agent profiles, deal metrics, and round-by-round offer progression.
+                  </p>
+                </div>
+
+                <div className="download-dropdown-wrap full-width">
+                  <button
+                    type="button"
+                    className="download-btn primary full-width"
+                    onClick={() => setReportMenuOpen(!reportMenuOpen)}
+                    disabled={downloadingReport}
+                    title="Download negotiation summary report"
+                  >
+                    <span>📊</span>
+                    <span>
+                      {downloadingReport ? "Generating Report..." : "Download Summary Report"}
+                    </span>
+                    <span className="dropdown-arrow">▾</span>
+                  </button>
+
+                  {reportMenuOpen && (
+                    <div className="dropdown-menu full-width">
+                      <button
+                        type="button"
+                        className="dropdown-item"
+                        onClick={() => {
+                          setReportMenuOpen(false);
+                          handleDownloadSummaryReport("md");
+                        }}
+                      >
+                        <div className="item-title">Markdown Report (.md)</div>
+                        <div className="item-desc">Structured tables & formatted text</div>
+                      </button>
+                      <button
+                        type="button"
+                        className="dropdown-item"
+                        onClick={() => {
+                          setReportMenuOpen(false);
+                          handleDownloadSummaryReport("txt");
+                        }}
+                      >
+                        <div className="item-title">Plain Text (.txt)</div>
+                        <div className="item-desc">ASCII table & plain report</div>
+                      </button>
+                      <button
+                        type="button"
+                        className="dropdown-item"
+                        onClick={() => {
+                          setReportMenuOpen(false);
+                          handleDownloadSummaryReport("json");
+                        }}
+                      >
+                        <div className="item-title">Structured JSON (.json)</div>
+                        <div className="item-desc">Complete analytics payload</div>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
+            </section>
+          )}
 
 
           {/* =================================================

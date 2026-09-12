@@ -341,6 +341,93 @@ async function cancelNegotiation(
 
 
 /* =========================================================
+   DOWNLOAD TRANSCRIPT
+========================================================= */
+
+function getTranscriptDownloadUrl(
+    negotiationId,
+    format = "txt"
+) {
+    return `${API_BASE_URL}/negotiations/${negotiationId}/transcript?format=${encodeURIComponent(format)}`;
+}
+
+async function downloadTranscript(
+    negotiationId,
+    format = "txt"
+) {
+    const url = getTranscriptDownloadUrl(negotiationId, format);
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Failed to download transcript (${response.status})`);
+    }
+
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get("content-disposition");
+    let filename = `negotiation_${negotiationId}_transcript.${format}`;
+    if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^";]+)"?/i);
+        if (match && match[1]) {
+            filename = match[1];
+        }
+    }
+
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
+}
+
+
+/* =========================================================
+   DOWNLOAD SUMMARY REPORT
+========================================================= */
+
+function getSummaryReportDownloadUrl(
+    negotiationId,
+    format = "html"
+) {
+    return `${API_BASE_URL}/negotiations/${negotiationId}/summary?format=${encodeURIComponent(format)}`;
+}
+
+async function downloadSummary(
+    negotiationId,
+    format = "html"
+) {
+    const url = getSummaryReportDownloadUrl(negotiationId, format);
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Failed to download summary report (${response.status})`);
+    }
+
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get("content-disposition");
+    let filename = `negotiation_${negotiationId}_summary.${format}`;
+    if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^";]+)"?/i);
+        if (match && match[1]) {
+            filename = match[1];
+        }
+    }
+
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
+}
+
+// Alias for convenience
+const downloadSummaryReport = downloadSummary;
+
+
+/* =========================================================
    EXPORT
 ========================================================= */
 
@@ -364,4 +451,16 @@ export {
 
     cancelNegotiation,
 
+    getTranscriptDownloadUrl,
+
+    downloadTranscript,
+
+    getSummaryReportDownloadUrl,
+
+    downloadSummary,
+
+    downloadSummaryReport,
+
 };
+
+

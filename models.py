@@ -144,9 +144,13 @@ class NegotiationStateResponse(BaseModel):
     status: str
     round: int
     max_rounds: int
-    human_role: str
-    ai_role: str
-    ai_personality: str
+    human_role: Optional[str] = None
+    ai_role: Optional[str] = None
+    ai_personality: Optional[str] = None
+    buyer_personality: Optional[str] = None
+    seller_personality: Optional[str] = None
+    scenario: Optional[int] = None
+    scenario_name: Optional[str] = None
     property: Dict[str, Any]
     reference_price: float
     asking_price: float
@@ -156,6 +160,8 @@ class NegotiationStateResponse(BaseModel):
     current_offer: Optional[float] = None
     last_human_offer: Optional[float] = None
     last_ai_offer: Optional[float] = None
+    last_buyer_offer: Optional[float] = None
+    last_seller_offer: Optional[float] = None
     agreed_price: Optional[float] = None
     repeated_offer_count: int = 0
     stagnant_round_count: int = 0

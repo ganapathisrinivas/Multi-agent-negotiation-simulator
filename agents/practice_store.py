@@ -7,13 +7,10 @@ from abc import ABC, abstractmethod
 @dataclass
 class PracticeNegotiationSession:
     negotiation_id: str
-    mode: str  # "human_vs_ai"
+    mode: str  # "human_vs_ai" or "ai_vs_ai"
     status: str  # "active", "accepted", "rejected", "completed", "cancelled", "deadlocked"
     round: int
     max_rounds: int
-    human_role: str  # "buyer" or "seller"
-    ai_role: str  # "seller" or "buyer"
-    ai_personality: str  # "aggressive", "collaborative", "risk_averse"
     property_index: int
     property: Dict[str, Any]
     reference_price: float
@@ -22,9 +19,19 @@ class PracticeNegotiationSession:
     minimum_price: float
     maximum_price: float
 
+    human_role: Optional[str] = None  # "buyer" or "seller"
+    ai_role: Optional[str] = None  # "seller" or "buyer"
+    ai_personality: Optional[str] = None  # "aggressive", "collaborative", "risk_averse"
+    buyer_personality: Optional[str] = None
+    seller_personality: Optional[str] = None
+    scenario: Optional[int] = None
+    scenario_name: Optional[str] = None
+
     current_offer: Optional[float] = None
     last_human_offer: Optional[float] = None
     last_ai_offer: Optional[float] = None
+    last_buyer_offer: Optional[float] = None
+    last_seller_offer: Optional[float] = None
     agreed_price: Optional[float] = None
 
     history: List[Dict[str, Any]] = field(default_factory=list)
@@ -113,3 +120,7 @@ class InMemoryNegotiationStore(BaseNegotiationStore):
             return True
 
         return False
+
+
+# Singleton store instance
+practice_store = InMemoryNegotiationStore()

@@ -589,12 +589,24 @@ select:disabled {
 
 .result-banner {
   margin: 13px;
-  padding: 12px 13px;
-  border-radius: 10px;
+  padding: 14px 16px;
+  border-radius: 12px;
   background: #171e33;
   border: 1px solid #2a3655;
   color: #aeb8d1;
   font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.completion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .result-banner.accepted {
@@ -731,6 +743,174 @@ select:disabled {
   font-size: 10px;
   line-height: 1.5;
   margin: 5px 0 0;
+}
+
+/* =========================================================
+   DOWNLOAD ACTIONS & DROPDOWNS
+========================================================= */
+
+.transcript-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.download-dropdown-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.download-dropdown-wrap.full-width {
+  width: 100%;
+}
+
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  border: 1px solid #2a344d;
+  background: #121829;
+  color: #c9d4f0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.download-btn:hover:not(:disabled) {
+  background: #1a2238;
+  border-color: #4a587d;
+  color: #ffffff;
+}
+
+.download-btn.primary {
+  background: linear-gradient(135deg, #3b50bb 0%, #5d6fe6 100%);
+  color: #ffffff;
+  border-color: #6c7df3;
+  box-shadow: 0 4px 15px rgba(93, 111, 230, 0.25);
+  padding: 11px 14px;
+}
+
+.download-btn.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #445ad0 0%, #6879ed 100%);
+  border-color: #8896f7;
+  box-shadow: 0 6px 20px rgba(93, 111, 230, 0.35);
+}
+
+.download-btn.secondary {
+  border-color: #2b3652;
+  background: #10162a;
+}
+
+.download-btn.full-width {
+  width: 100%;
+}
+
+.download-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dropdown-arrow {
+  font-size: 10px;
+  margin-left: 2px;
+  opacity: 0.7;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 100;
+  min-width: 210px;
+  background: #0d1222;
+  border: 1px solid #28334e;
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  animation: fadeInDown 0.15s ease-out;
+}
+
+.dropdown-menu.full-width {
+  left: 0;
+  right: 0;
+  min-width: 100%;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dropdown-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #d1dbf4;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dropdown-item:hover {
+  background: #1b233a;
+}
+
+.dropdown-item .item-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #e6edff;
+}
+
+.dropdown-item .item-desc {
+  font-size: 10px;
+  color: #7b88a8;
+}
+
+/* =========================================================
+   REPORT PANEL
+========================================================= */
+
+.report-panel {
+  padding: 18px;
+}
+
+.report-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.report-info strong {
+  display: block;
+  font-size: 12px;
+  color: #e1e7f9;
+  margin-bottom: 4px;
+}
+
+.report-info p {
+  margin: 0;
+  font-size: 10px;
+  color: #7d8aa8;
+  line-height: 1.45;
 }
 
 @media (max-width: 1200px) {

@@ -1,7 +1,12 @@
+import json
 import time
 import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response, JSONResponse, PlainTextResponse
+
+from report_generator import generate_transcript, generate_summary
 
 from models import (
     NegotiationRequest,
@@ -29,13 +34,13 @@ from agents.counteroffer_evaluator import CounterofferEvaluator
 from agents.practice_agent import PracticeAIAgent
 from agents.practice_store import (
     PracticeNegotiationSession,
-    InMemoryNegotiationStore
+    InMemoryNegotiationStore,
+    practice_store
 )
 
 
 router = APIRouter()
 
-practice_store = InMemoryNegotiationStore()
 practice_agent = PracticeAIAgent()
 
 SCENARIOS = {
@@ -502,6 +507,10 @@ def get_negotiation_state(negotiation_id: str):
         human_role=session.human_role,
         ai_role=session.ai_role,
         ai_personality=session.ai_personality,
+        buyer_personality=session.buyer_personality,
+        seller_personality=session.seller_personality,
+        scenario=session.scenario,
+        scenario_name=session.scenario_name,
         property=session.property,
         reference_price=session.reference_price,
         asking_price=session.asking_price,
@@ -511,6 +520,8 @@ def get_negotiation_state(negotiation_id: str):
         current_offer=session.current_offer,
         last_human_offer=session.last_human_offer,
         last_ai_offer=session.last_ai_offer,
+        last_buyer_offer=session.last_buyer_offer,
+        last_seller_offer=session.last_seller_offer,
         agreed_price=session.agreed_price,
         repeated_offer_count=session.repeated_offer_count,
         stagnant_round_count=session.stagnant_round_count,
@@ -537,6 +548,52 @@ def get_negotiation_history(negotiation_id: str):
         status=session.status,
         total_messages=len(session.history),
         history=session.history
+    )
+
+
+# =====================================================
+# DOWNLOAD TRANSCRIPT ENDPOINTS
+# =====================================================
+
+@router.get("/negotiations/{negotiation_id}/transcript")
+@router.get("/negotiations/{negotiation_id}/transcript/download")
+def download_transcript(
+    negotiation_id: str,
+    format: str = Query("txt", description="Format: 'txt', 'md', 'html', or 'json'")
+):
+    session = _get_session(negotiation_id)
+    content, media_type, filename = generate_transcript(session, format)
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
+    )
+
+
+# =====================================================
+# DOWNLOAD SUMMARY REPORT ENDPOINTS
+# =====================================================
+
+@router.get("/negotiations/{negotiation_id}/summary")
+@router.get("/negotiations/{negotiation_id}/report/download")
+def download_summary_report(
+    negotiation_id: str,
+    format: str = Query("html", description="Format: 'html', 'md', 'txt', or 'json'")
+):
+    session = _get_session(negotiation_id)
+    content, media_type, filename = generate_summary(session, format)
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
     )
 
 
@@ -692,7 +749,39 @@ def start_negotiation(request: NegotiationRequest):
             detail=str(error)
         )
 
+    session_id = f"ai_{uuid.uuid4().hex[:8]}"
+    history = orchestrator.get_history()
+    orch_state = orchestrator.get_state()
+
+    ai_session = PracticeNegotiationSession(
+        negotiation_id=session_id,
+        mode="ai_vs_ai",
+        status=str(result.get("status", "REJECTED")).lower(),
+        round=orchestrator.round_count,
+        max_rounds=request.max_rounds,
+        scenario=request.scenario,
+        scenario_name=SCENARIOS[request.scenario],
+        buyer_personality=buyer_personality,
+        seller_personality=seller_personality,
+        property_index=(
+            request.property_index
+            if request.property_index is not None
+            else 0
+        ),
+        property=property_data,
+        reference_price=reference_price,
+        asking_price=seller_target,
+        target_price=buyer_target,
+        minimum_price=buyer_minimum,
+        maximum_price=seller_maximum,
+        agreed_price=result.get("agreed_price"),
+        history=history,
+        deadlock_reason=orch_state.get("deadlock_reason") if isinstance(orch_state, dict) else None
+    )
+    practice_store.save(ai_session)
+
     return {
+        "negotiation_id": session_id,
         "status": result.get("status"),
         "agreed_price": result.get("agreed_price"),
         "scenario": SCENARIOS[request.scenario],
@@ -703,6 +792,6 @@ def start_negotiation(request: NegotiationRequest):
         "original_dataset_index": (
             selected_item["original_dataset_index"]
         ),
-        "negotiation_history": orchestrator.get_history(),
-        "current_state": orchestrator.get_state()
+        "negotiation_history": history,
+        "current_state": orch_state
     }
