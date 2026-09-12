@@ -270,6 +270,37 @@ class TestMilestone4Reports(unittest.TestCase):
         s_resp = self.client.get(f"/negotiations/{neg_id}/summary")
         self.assertEqual(s_resp.status_code, 200)
 
+    # 17. Natural language offer extraction without explicit numerical field
+    def test_17_natural_language_offer_extraction(self):
+        test_cases = [
+            ("I can offer 25 lakhs", 2500000.0),
+            ("I can offer 50 lakh", 5000000.0),
+            ("I will give 1 crore", 10000000.0),
+            ("I can pay 2.5 crore", 25000000.0),
+            ("₹50 Lakhs", 5000000.0),
+            ("The price is too high. Can you reduce it?", None)
+        ]
+
+        for msg, expected_offer in test_cases:
+            init_payload = {
+                "scenario": 2,
+                "human_role": "buyer",
+                "ai_personality": "collaborative",
+                "max_rounds": 10
+            }
+            init_resp = self.client.post("/negotiations/practice", json=init_payload)
+            self.assertEqual(init_resp.status_code, 200)
+            neg_id = init_resp.json()["negotiation_id"]
+
+            # Send message without explicit offer (offer: None)
+            resp = self.client.post(
+                f"/negotiations/{neg_id}/message",
+                json={"message": msg, "offer": None}
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data.get("human_offer"), expected_offer)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

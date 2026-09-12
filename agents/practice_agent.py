@@ -128,6 +128,10 @@ class PracticeAIAgent:
                     f"Gemini initialization skipped: {error}"
                 )
 
+    @staticmethod
+    def extract_offer_from_text(text: Optional[str]) -> Optional[float]:
+        return extract_offer_from_text(text)
+
     # ========================================================
     # INITIAL GREETING
     # ========================================================

@@ -31,7 +31,10 @@ from negotiation_runner import run_negotiation
 from agents.orchestrator_agent import OrchestratorAgent
 from agents.reasoning_engine import ReasoningEngine
 from agents.counteroffer_evaluator import CounterofferEvaluator
-from agents.practice_agent import PracticeAIAgent
+from agents.practice_agent import (
+    PracticeAIAgent,
+    extract_offer_from_text
+)
 from agents.practice_store import (
     PracticeNegotiationSession,
     InMemoryNegotiationStore,

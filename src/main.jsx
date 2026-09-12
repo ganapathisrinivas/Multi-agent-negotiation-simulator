@@ -776,9 +776,6 @@ function App() {
   const [message, setMessage] =
     useState("");
 
-  const [offer, setOffer] =
-    useState("");
-
   const [loading, setLoading] =
     useState(false);
 
@@ -1304,8 +1301,6 @@ function App() {
 
     setMessage("");
 
-    setOffer("");
-
 
     try {
 
@@ -1384,27 +1379,16 @@ function App() {
 
     try {
 
-      const humanOffer =
-        offer === ""
-
-          ? null
-
-          : Number(
-              offer
-            );
-
-
       /*
        * Send through YOUR API SERVICE.
+       * The backend extracts the offer from the natural message.
        */
       const data =
         await sendOffer(
 
           session.negotiation_id,
 
-          message.trim(),
-
-          humanOffer
+          message.trim()
 
         );
 
@@ -1556,8 +1540,6 @@ function App() {
 
 
       setMessage("");
-
-      setOffer("");
 
 
     } catch (err) {
@@ -2101,8 +2083,6 @@ function App() {
                     );
 
                     setMessage("");
-
-                    setOffer("");
 
                     setError("");
 
@@ -3106,38 +3086,6 @@ function App() {
                   }
 
                 >
-
-                  <div
-                    className="offer-input"
-                  >
-
-                    <span>
-                      ₹
-                    </span>
-
-                    <input
-
-                      type="number"
-
-                      min="0"
-
-                      placeholder="Offer amount (optional)"
-
-                      value={
-                        offer
-                      }
-
-                      onChange={
-                        (e) =>
-                          setOffer(
-                            e.target.value
-                          )
-                      }
-
-                    />
-
-                  </div>
-
 
                   <input
 

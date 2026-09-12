@@ -550,41 +550,26 @@ select:disabled {
 
 .composer {
   display: grid;
-  grid-template-columns: 155px 1fr 72px;
-  gap: 8px;
+  grid-template-columns: 1fr 84px;
+  gap: 10px;
   padding: 13px;
   border-top: 1px solid #20283b;
 }
 
-.offer-input {
-  display: flex;
-  align-items: center;
-  border: 1px solid #293249;
-  border-radius: 10px;
-  background: #0b1020;
-  overflow: hidden;
-}
-
-.offer-input span {
-  padding-left: 10px;
-  color: #7d8bad;
-  font-weight: 800;
-}
-
-.offer-input input {
-  border: 0;
-  box-shadow: none;
-  margin: 0;
-  min-width: 0;
-}
-
 .message-input {
   margin: 0;
+  width: 100%;
 }
 
 .send-btn {
   background: #6877e8;
   color: white;
+  font-weight: 700;
+  border-radius: 10px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .result-banner {
