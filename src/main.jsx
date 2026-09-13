@@ -999,6 +999,12 @@ function App() {
       agreed_price:
         data.agreed_price,
 
+      buyer_objective_satisfaction:
+        data.buyer_objective_satisfaction,
+
+      seller_objective_satisfaction:
+        data.seller_objective_satisfaction,
+
       stagnant_round_count:
         data.current_state
           ?.stagnant_round_count ??
