@@ -232,8 +232,64 @@ function extractPriceFromText(text) {
     return null;
   }
 
-  const value =
-    String(text);
+  const value = String(text);
+
+  /* -------------------------------------------------------
+     LAKHS
+     Examples:
+       ₹179.10 lakhs
+       ₹90 lakh
+       COUNTEROFFER: ₹192.37 lakhs
+
+     Convert lakhs to full rupees.
+  ------------------------------------------------------- */
+
+  const lakhMatch = value.match(
+    /₹?\s*([\d,]+(?:\.\d+)?)\s*(?:lakhs?|lakh)\b/i
+  );
+
+  if (lakhMatch) {
+
+    const number = Number(
+      lakhMatch[1].replace(/,/g, '')
+    );
+
+    if (Number.isFinite(number)) {
+      return number * 100000;
+    }
+
+  }
+
+  /* -------------------------------------------------------
+     CRORES
+     Examples:
+       ₹1.25 crore
+       ₹2 crores
+  ------------------------------------------------------- */
+
+  const croreMatch = value.match(
+    /₹?\s*([\d,]+(?:\.\d+)?)\s*(?:crores?|crore)\b/i
+  );
+
+  if (croreMatch) {
+
+    const number = Number(
+      croreMatch[1].replace(/,/g, '')
+    );
+
+    if (Number.isFinite(number)) {
+      return number * 10000000;
+    }
+
+  }
+
+  /* -------------------------------------------------------
+     DIRECT RUPEE VALUES
+     Examples:
+       Buyer Offer: ₹1,79,10,000
+       COUNTEROFFER: ₹1,92,37,000
+       ₹5000000
+  ------------------------------------------------------- */
 
   const patterns = [
 
@@ -241,26 +297,21 @@ function extractPriceFromText(text) {
 
     /(?:counteroffer|counter\s+offer|accepted\s+offer|offer)\s*:\s*₹?\s*([\d,]+(?:\.\d+)?)/i,
 
+    /₹\s*([\d,]+(?:\.\d+)?)/i,
+
   ];
 
-  for (
-    const pattern of patterns
-  ) {
+  for (const pattern of patterns) {
 
-    const match =
-      value.match(pattern);
+    const match = value.match(pattern);
 
     if (match) {
 
-      const number =
-        Number(
-          String(match[1])
-            .replace(/,/g, "")
-        );
+      const number = Number(
+        String(match[1]).replace(/,/g, '')
+      );
 
-      if (
-        Number.isFinite(number)
-      ) {
+      if (Number.isFinite(number)) {
         return number;
       }
 
